@@ -2608,7 +2608,296 @@ REMOVE_WORDS = [
     "주변",
     "가볼만
 
+# 평가 항목 #10 보완: GET/POST 사용 이유 및 예시 엔드포인트 문서화
 
+## 평가 결과
+
+| 구분 | 내용 |
+|---|---|
+| 결과 | FAIL |
+| 평가 항목 | #10 |
+| 근거 | `trip.py > res = requests.get(url, headers=headers, params=params)` |
+| 잘한 점 | Kakao API에 `GET`을 사용해 호출 중임을 코드에서 확인 가능 |
+| 부족한 점 | 문서에서 `GET`/`POST` 용도 구분, 예시 엔드포인트 설명이 없음 |
+| 보완 | README에 `GET`/`POST` 사용처, 사용 이유, 예시 엔드포인트 항목을 추가 |
+
+---
+
+## 1. 문제점
+
+현재 코드에서는 Kakao Local API를 다음과 같이 `GET` 방식으로 호출한다.
+
+```python
+res = requests.get(url, headers=headers, params=params)
+```
+
+하지만 README 문서에는 다음 내용이 명확히 설명되어 있지 않다.
+
+- 왜 Kakao API 호출에 `GET`을 사용하는지
+- 어떤 엔드포인트를 호출하는지
+- `GET`과 `POST`를 어떤 기준으로 구분하는지
+- 프로젝트에서 `POST`는 어떤 상황에서 사용할 수 있는지
+- 요청 파라미터와 예시 응답이 무엇인지
+
+따라서 코드에는 `GET` 사용이 확인되지만, API 설계 문서화가 부족하여 평가 항목 #10에서 FAIL이 발생하였다.
+
+---
+
+## 2. GET/POST 사용 기준
+
+본 프로젝트에서는 API의 목적에 따라 `GET`과 `POST`를 구분하여 사용한다.
+
+| HTTP Method | 사용 목적 | 데이터 전달 방식 | 본 프로젝트 사용 예 |
+|---|---|---|---|
+| `GET` | 기존 데이터 조회 | URL Query Parameter | Kakao Local API로 맛집 검색 |
+| `POST` | 데이터 생성 또는 처리 요청 | Request Body | LLM API에 프롬프트 전송 시 사용 가능 |
+
+---
+
+## 3. Kakao Local API 호출 방식
+
+### 사용 Method
+
+```http
+GET
+```
+
+### 사용 이유
+
+Kakao Local API의 키워드 검색은 서버에 새로운 데이터를 생성하는 작업이 아니라,  
+검색어를 기준으로 기존 장소 데이터를 조회하는 작업이다.
+
+따라서 `POST`가 아니라 `GET` 요청을 사용한다.
+
+---
+
+## 4. Kakao Local API 예시 엔드포인트
+
+### Endpoint
+
+```text
+https://dapi.kakao.com/v2/local/search/keyword.json
+```
+
+### 기능
+
+입력한 키워드를 기준으로 장소 정보를 검색한다.
+
+예를 들어 다음과 같은 검색어를 사용할 수 있다.
+
+```text
+부산 맛집
+제주 카페
+서울 강남 맛집
+```
+
+---
+
+## 5. Kakao API 요청 예시
+
+```python
+import requests
+
+url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+
+headers = {
+    "Authorization": "KakaoAK YOUR_KAKAO_API_KEY"
+}
+
+params = {
+    "query": "부산 맛집",
+    "size": 5
+}
+
+res = requests.get(
+    url,
+    headers=headers,
+    params=params,
+    timeout=5
+)
+
+data = res.json()
+```
+
+---
+
+## 6. 실제 요청 URL 예시
+
+```http
+GET https://dapi.kakao.com/v2/local/search/keyword.json?query=부산%20맛집&size=5
+```
+
+위 요청은 다음 의미를 가진다.
+
+| 항목 | 값 |
+|---|---|
+| Method | `GET` |
+| Endpoint | `/v2/local/search/keyword.json` |
+| Query | `부산 맛집` |
+| Size | `5` |
+| 목적 | 부산 지역의 맛집 장소 정보 조회 |
+
+---
+
+## 7. 주요 요청 파라미터
+
+| 파라미터 | 타입 | 필수 여부 | 설명 | 예시 |
+|---|---|---|---|---|
+| `query` | string | 필수 | 검색 키워드 | `부산 맛집` |
+| `size` | integer | 선택 | 한 페이지에 가져올 결과 개수 | `5` |
+| `page` | integer | 선택 | 결과 페이지 번호 | `1` |
+| `x` | string | 선택 | 중심 좌표의 X값, 경도 | `129.0756` |
+| `y` | string | 선택 | 중심 좌표의 Y값, 위도 | `35.1796` |
+| `radius` | integer | 선택 | 중심 좌표 기준 검색 반경, 단위 meter | `20000` |
+
+---
+
+## 8. Kakao API 응답 예시
+
+```json
+{
+  "documents": [
+    {
+      "place_name": "맛집 이름",
+      "address_name": "부산광역시 해운대구 ...",
+      "road_address_name": "부산광역시 해운대구 ...",
+      "phone": "051-000-0000",
+      "place_url": "https://place.map.kakao.com/..."
+    }
+  ],
+  "meta": {
+    "is_end": false,
+    "pageable_count": 45,
+    "total_count": 120
+  }
+}
+```
+
+---
+
+## 9. 응답 데이터에서 사용하는 필드
+
+본 프로젝트에서는 Kakao API 응답 중 다음 필드를 사용한다.
+
+| 필드 | 설명 | 사용 위치 |
+|---|---|---|
+| `documents` | 장소 검색 결과 목록 | 맛집 목록 생성 |
+| `place_name` | 장소 이름 | Markdown 맛집 이름 |
+| `address_name` | 지번 주소 | 주소 표시 |
+| `road_address_name` | 도로명 주소 | 주소 표시 |
+| `phone` | 전화번호 | 전화번호 표시 |
+| `place_url` | Kakao 장소 상세 링크 | 링크 표시 |
+
+---
+
+## 10. POST 사용 가능 위치
+
+현재 Kakao Local API 호출에는 `GET`을 사용한다.
+
+반면, LLM API를 직접 호출하는 경우에는 일반적으로 `POST`를 사용할 수 있다.
+
+LLM API는 단순 조회가 아니라 사용자의 프롬프트를 Request Body에 담아 서버에 전달하고, 서버가 새로운 응답을 생성하는 방식이기 때문이다.
+
+---
+
+## 11. LLM API POST 요청 예시
+
+```python
+import requests
+
+url = "https://api.openai.com/v1/chat/completions"
+
+headers = {
+    "Authorization": "Bearer YOUR_OPENAI_API_KEY",
+    "Content-Type": "application/json"
+}
+
+body = {
+    "model": "gpt-4o-mini",
+    "messages": [
+        {
+            "role": "user",
+            "content": "2025-12-25에 어울리는 국내 여행지를 JSON으로 추천해줘."
+        }
+    ]
+}
+
+res = requests.post(
+    url,
+    headers=headers,
+    json=body,
+    timeout=10
+)
+
+data = res.json()
+```
+
+---
+
+## 12. GET과 POST 선택 기준 비교
+
+| 구분 | GET | POST |
+|---|---|---|
+| 주 목적 | 데이터 조회 | 데이터 생성 또는 처리 요청 |
+| 데이터 전달 위치 | URL Query Parameter | Request Body |
+| 캐싱 가능성 | 상대적으로 높음 | 상대적으로 낮음 |
+| URL 노출 | Query가 URL에 노출됨 | Body에 담겨 URL에 직접 노출되지 않음 |
+| 본 프로젝트 예시 | Kakao 맛집 검색 | LLM 프롬프트 전송 |
+| 코드 예시 | `requests.get()` | `requests.post()` |
+
+---
+
+## 13. 본 프로젝트 API 사용 요약
+
+| 기능 | API | Method | Endpoint | 사용 이유 |
+|---|---|---|---|---|
+| 맛집 검색 | Kakao Local API | `GET` | `/v2/local/search/keyword.json` | 검색어 기반 장소 데이터 조회 |
+| 여행 추천 생성 | LLM API | `POST` | `/v1/chat/completions` 등 | 프롬프트를 본문에 담아 응답 생성 요청 |
+| 결과 저장 | 로컬 파일 시스템 | 해당 없음 | `outputs/` | 생성된 JSON/Markdown 결과 저장 |
+| 캐시 조회 | 로컬 파일 시스템 | 해당 없음 | `outputs/cache/` | 동일 날짜 결과 재사용 |
+
+---
+
+## 14. 코드 내 GET 사용 위치
+
+현재 Kakao API 호출부는 다음과 같다.
+
+```python
+res = requests.get(
+    url,
+    headers=headers,
+    params=params,
+    timeout=5
+)
+```
+
+여기서 각 인자의 의미는 다음과 같다.
+
+| 인자 | 설명 |
+|---|---|
+| `url` | Kakao Local API 엔드포인트 |
+| `headers` | Kakao API 인증키 포함 |
+| `params` | 검색어, 결과 개수 등 Query Parameter |
+| `timeout` | API 응답 대기 시간 제한 |
+
+---
+
+## 15. 보완 결과
+
+이번 보완으로 README에 다음 내용이 추가되었다.
+
+- Kakao API에 `GET`을 사용하는 이유
+- Kakao Local API 예시 엔드포인트
+- 실제 요청 URL 예시
+- 주요 요청 파라미터 설명
+- 응답 데이터 구조 예시
+- 프로젝트에서 사용하는 응답 필드
+- `GET`과 `POST` 사용 기준
+- LLM API에서 `POST`를 사용할 수 있는 이유
+- 프로젝트 전체 API 사용 요약
+
+따라서 평가 항목 #10의 부족한 점인  
+“문서에 GET/POST 용도 구분, 예시 엔드포인트 설명이 없음”을 보완하였다.
 
 
 
