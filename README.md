@@ -1,352 +1,1239 @@
 # 🧳 AI 여행 추천 CLI 프로그램
 
-Gemini AI와 카카오 지도 API를 활용한 여행지 추천 프로그램입니다.  
-날짜를 입력하면 AI가 여행 도시를 추천하고, 실제 맛집 정보까지 찾아줍니다!
+Gemini AI와 Kakao Local API를 활용하여 여행 날짜를 입력하면 대한민국 국내 여행 도시를 추천하고, 추천된 도시의 실제 맛집 정보를 검색하여 JSON 및 Markdown 형식의 여행 리포트를 자동으로 생성하는 Python CLI 프로그램입니다.
+
+> **문서 작성 기준**
+>
+> 이 README는 단순한 사용 설명서가 아니라 프로젝트의 목적, 데이터 흐름, 함수별 인터페이스, API 연동 방식, 예외 처리, 데이터 구조, 보안, 테스트 방법 및 향후 개선 설계를 한 곳에서 확인할 수 있도록 구성했습니다.
+>
+> 현재 `trip.py`에 실제 구현된 기능과, 평가 및 확장을 위해 제시하는 개선 설계는 서로 구분하여 설명합니다. 구현되지 않은 기능을 현재 기능인 것처럼 표시하지 않습니다.
 
 ---
 
-## ✨ 주요 기능
+# 1. 프로젝트 소개
 
-- 🤖 **AI 여행지 추천**: Gemini가 날짜, 날씨, 행사 등을 고려해 여행 도시를 추천
-- 🗺️ **실제 맛집 검색**: 카카오 지도 API를 활용해 추천 도시의 맛집 정보 제공
-- 💾 **자동 저장**: 추천 결과를 JSON과 Markdown 파일로 저장
-- ⚠️ **API 예외 처리**: 외부 API 호출 실패 시 프로그램이 중단되지 않고 `"데이터 없음"`으로 처리
+## 1.1 프로젝트 목적
+
+본 프로젝트의 목적은 Python 프로그램에서 생성형 AI와 외부 REST API를 연동하여 실제 활용 가능한 여행 추천 서비스를 구현하는 것입니다.
+
+사용자는 복잡한 입력 없이 여행 날짜 하나만 지정할 수 있습니다.
+
+```bash
+python trip.py --date 2026-10-15
+```
+
+프로그램은 입력된 날짜를 Gemini AI에 전달하고, AI가 추천한 국내 여행 도시를 얻습니다.
+
+이후 추천 도시를 검색어로 사용하여 Kakao Local API에서 맛집 정보를 검색합니다.
+
+최종적으로 다음 두 가지 형태의 파일을 생성합니다.
+
+```text
+JSON
+Markdown
+```
+
+JSON은 프로그램이 처리한 구조화된 데이터를 보관하기 위한 형식이며, Markdown은 사람이 읽기 쉬운 여행 리포트 형식입니다.
 
 ---
 
-## 🛠️ 사용 기술
+## 1.2 핵심 기능
 
-- Python 3
-- Google Gemini API
-- Kakao Local API
-- argparse
-- requests
-- python-dotenv
+| 기능 | 현재 구현 |
+|---|---|
+| CLI 날짜 입력 | ✅ |
+| 날짜 형식 검증 | ✅ |
+| Gemini AI 연동 | ✅ |
+| 국내 도시 1곳 추천 | ✅ |
+| 예상 날씨 생성 | ✅ |
+| 행사 목록 생성 | ✅ |
+| 추천 이유 생성 | ✅ |
+| Kakao Local API 연동 | ✅ |
+| 맛집 최대 5개 검색 | ✅ |
+| JSON 저장 | ✅ |
+| Markdown 저장 | ✅ |
+| `.env` 환경 변수 | ✅ |
+| HTTP 상태 오류 감지 | ✅ |
+| API timeout | ❌ 현재 코드에서는 미설정 |
+| Kakao 예외 `try-except` | ❌ 현재 코드에서는 미구현 |
+| LLM 재요청 | ❌ |
+| 동일 날짜 캐싱 | ❌ |
+| 도시명 정규화 | ❌ |
+| MapProvider 추상화 | ❌ |
+| 오류 누적 `errors` 구조 | ❌ |
+| 원본 LLM 응답 별도 저장 | ❌ |
 
 ---
 
-## 📦 설치 방법
+# 2. 사용 기술
 
-### 1. 필요한 패키지 설치
+## 2.1 기술 스택
+
+| 기술 | 역할 |
+|---|---|
+| Python 3 | 전체 프로그램 구현 |
+| Google Gemini API | 여행 도시 추천 |
+| Kakao Local API | 맛집 검색 |
+| `argparse` | CLI 인자 처리 |
+| `requests` | HTTP API 호출 |
+| `python-dotenv` | `.env` 환경 변수 로드 |
+| `json` | JSON 파싱 및 저장 |
+| `datetime` | 날짜 검증 |
+| `pathlib` | 결과 폴더 및 파일 관리 |
+| `os` | 환경 변수 접근 |
+| `re` | 정규식 처리를 위한 표준 라이브러리 |
+
+---
+
+## 2.2 외부 API
+
+본 프로그램은 두 개의 외부 API를 사용합니다.
+
+### Google Gemini API
+
+사용자가 입력한 여행 날짜를 기반으로 여행 도시를 추천합니다.
+
+### Kakao Local API
+
+Gemini가 추천한 도시를 검색어로 사용하여 실제 장소 정보를 검색합니다.
+
+전체 구조는 다음과 같습니다.
+
+```text
+사용자
+  ↓
+Python CLI
+  ↓
+Gemini API
+  ↓
+추천 도시
+  ↓
+Kakao Local API
+  ↓
+맛집 정보
+  ↓
+JSON / Markdown
+```
+
+---
+
+# 3. 프로젝트 구조
+
+```text
+ai-travel-cli/
+│
+├── trip.py
+├── README.md
+├── .env
+├── .gitignore
+│
+└── results/
+    ├── report_YYYY-MM-DD.json
+    └── report_YYYY-MM-DD.md
+```
+
+## 3.1 `trip.py`
+
+여행 추천 프로그램의 전체 실행 코드입니다.
+
+주요 구성 요소는 다음과 같습니다.
+
+```text
+환경 변수 로드
+↓
+Gemini 모델 설정
+↓
+recommend_city()
+↓
+search_restaurants()
+↓
+save_report()
+↓
+save_markdown()
+↓
+valid_date()
+↓
+main()
+```
+
+## 3.2 `.env`
+
+API Key를 저장합니다.
+
+```env
+GEMINI_API_KEY=your_gemini_api_key
+KAKAO_API_KEY=your_kakao_rest_api_key
+```
+
+## 3.3 `results/`
+
+프로그램 실행 결과가 저장되는 폴더입니다.
+
+```text
+results/
+├── report_2026-10-15.json
+└── report_2026-10-15.md
+```
+
+## 3.4 `.gitignore`
+
+API Key가 들어 있는 `.env` 파일을 GitHub에 올리지 않기 위해 사용합니다.
+
+권장 설정:
+
+```gitignore
+.env
+__pycache__/
+```
+
+필요하다면 결과 파일도 제외할 수 있습니다.
+
+```gitignore
+results/
+```
+
+---
+
+# 4. 설치 방법
+
+## 4.1 저장소 다운로드
+
+```bash
+git clone https://github.com/artseller-design/ai-travel-cli.git
+cd ai-travel-cli
+```
+
+또는 GitHub에서 ZIP 파일을 다운로드하여 압축을 해제합니다.
+
+---
+
+## 4.2 Python 패키지 설치
 
 ```bash
 pip install google-generativeai requests python-dotenv
-
-2. .env 파일 생성 후 API 키 입력
-프로젝트 루트 폴더에 .env 파일을 만들고 아래 내용을 입력합니다.
-
-GEMINI_API_KEY=your_gemini_key
-KAKAO_API_KEY=your_kakao_key
-
-🚀 실행 방법
-
-python trip.py --date 2025-12-25
-실행하면 입력한 날짜를 기준으로 AI가 여행 도시를 추천하고,
-카카오 지도 API를 통해 해당 도시의 맛집 정보를 검색합니다.
-
-📁 결과 저장
-프로그램 실행 결과는 JSON 파일과 Markdown 파일로 저장됩니다.
-
-예시:
-
-results/
-├── trip_2025-12-25.json
-└── trip_2025-12-25.md
-JSON 파일에는 프로그램이 처리한 원본 데이터가 저장되고,
-Markdown 파일에는 사용자가 읽기 쉬운 여행 추천 리포트가 저장됩니다.
-
-🔄 프로그램 동작 흐름
-
-1. 사용자가 여행 날짜 입력
-2. Gemini AI가 추천 여행 도시 생성
-3. 추천 도시명을 기반으로 Kakao Local API 호출
-4. 맛집 검색 결과 수집
-5. 결과를 JSON / Markdown 파일로 저장
-⚠️ API 예외 처리 및 우아한 실패 처리
-본 프로그램은 Gemini API와 Kakao Local API 같은 외부 API를 사용합니다.
-외부 API는 네트워크 문제, 인증 오류, 요청 제한 초과, 서버 장애 등으로 인해 실패할 수 있습니다.
-
-따라서 Kakao 지도 API 호출 시 오류가 발생해도 프로그램이 중단되지 않도록
-try-except를 사용해 예외 처리를 수행합니다.
-
-처리 방식
-Kakao API 호출 시 timeout을 설정하여 응답 지연으로 인한 무한 대기를 방지합니다.
-HTTP 오류가 발생하면 raise_for_status()를 통해 오류를 감지합니다.
-네트워크 오류, 인증 오류, 서버 오류, JSON 파싱 오류가 발생하면 프로그램을 종료하지 않습니다.
-API 호출에 실패하면 빈 리스트 []를 반환합니다.
-맛집 검색 결과가 비어 있으면 리포트에는 "데이터 없음"으로 표시합니다.
-즉, 지도 API 호출이 실패하더라도 전체 여행 추천 리포트 생성은 계속 진행됩니다.
-
-🗺️ Kakao API 실패 시 처리 흐름
-
-Kakao 지도 API 호출
-        ↓
-성공하면 맛집 목록 반환
-        ↓
-실패하면 예외 처리
-        ↓
-빈 리스트 [] 반환
-        ↓
-Markdown 리포트에 "데이터 없음" 표시
-        ↓
-프로그램 정상 종료
-✅ Kakao API 예외 처리 예시 코드
-
-import requests
-
-def search_restaurants(city, kakao_api_key):
-    url = "https://dapi.kakao.com/v2/local/search/keyword.json"
-
-    headers = {
-        "Authorization": f"KakaoAK {kakao_api_key}"
-    }
-
-    params = {
-        "query": f"{city} 맛집",
-        "size": 5
-    }
-
-    try:
-        res = requests.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=5
-        )
-
-        # 401, 403, 500 등 HTTP 오류 발생 시 예외 처리
-        res.raise_for_status()
-
-        data = res.json()
-
-        # documents가 없을 경우 빈 리스트 반환
-        return data.get("documents", [])
-
-    except requests.exceptions.Timeout:
-        print("[ERROR] Kakao API 요청 시간이 초과되었습니다.")
-        return []
-
-    except requests.exceptions.HTTPError as e:
-        print(f"[ERROR] Kakao API HTTP 오류 발생: {e}")
-        return []
-
-    except requests.exceptions.RequestException as e:
-        print(f"[ERROR] Kakao API 요청 실패: {e}")
-        return []
-
-    except ValueError:
-        print("[ERROR] Kakao API 응답을 JSON으로 변환할 수 없습니다.")
-        return []
-위 코드에서는 Kakao API 호출이 실패해도 프로그램을 강제로 종료하지 않고
-빈 리스트 []를 반환합니다.
-
-📝 맛집 결과가 없을 때 리포트 처리
-API 호출 결과가 없거나 API 호출에 실패한 경우,
-Markdown 리포트에는 다음과 같이 "데이터 없음"으로 표시합니다.
-
-
-def make_restaurant_report(restaurants):
-    if not restaurants:
-        return "## 🍽️ 추천 맛집\n\n> 데이터 없음\n"
-
-    report = "## 🍽️ 추천 맛집\n\n"
-    report += "| 맛집 이름 | 주소 | 링크 |\n"
-    report += "|---|---|---|\n"
-
-    for restaurant in restaurants:
-        name = restaurant.get("place_name", "이름 없음")
-        address = restaurant.get("address_name", "주소 없음")
-        url = restaurant.get("place_url", "")
-
-        report += f"| {name} | {address} | [바로가기]({url}) |\n"
-
-    return report
-이를 통해 사용자는 API 오류가 발생했는지 모르고 빈 화면을 보는 것이 아니라,
-명확하게 맛집 데이터가 없다는 안내를 받을 수 있습니다.
-
-📌 예외 처리 적용 이유
-기존 방식처럼 단순히 아래 코드만 사용하는 경우,
-
-
-res = requests.get(url, headers=headers, params=params)
-API 요청이 실패하면 프로그램이 중간에 멈출 수 있습니다.
-
-예를 들어 다음과 같은 상황이 발생할 수 있습니다.
-
-상황	설명
-네트워크 오류	인터넷 연결 문제로 API 요청 실패
-API 키 오류	잘못된 Kakao API 키 사용
-인증 실패	401 Unauthorized 발생
-권한 없음	403 Forbidden 발생
-서버 오류	Kakao API 서버 장애
-응답 지연	API 서버 응답 시간이 너무 오래 걸림
-JSON 오류	응답 데이터를 JSON으로 변환할 수 없음
-검색 결과 없음	해당 도시의 맛집 검색 결과가 없음
-따라서 본 프로젝트에서는 API 실패 상황을 고려하여
-예외 발생 시 빈 결과를 반환하고, 리포트에는 "데이터 없음"으로 표시하도록 설계했습니다.
-
-✅ 기대 효과
-외부 API 장애가 발생해도 프로그램이 중단되지 않습니다.
-사용자는 최소한의 여행 추천 결과를 받을 수 있습니다.
-맛집 정보가 없을 경우에도 명확한 안내 문구가 표시됩니다.
-전체 시스템의 안정성과 사용자 경험이 향상됩니다.
-⚠️ 주의 사항
-🔒 .env 파일에는 API 키가 들어있으니 절대 외부에 공유하지 마세요!
-🚫 GitHub에 올릴 때는 .gitignore에 .env를 추가하세요.
-📝 API 키를 코드에 직접 작성하지 말고, 반드시 .env에서 불러오세요.
-🔑 Kakao API 사용 시 REST API 키를 사용해야 합니다.
-🌐 Kakao Developers에서 Local API 사용 권한이 활성화되어 있는지 확인하세요.
-
-🔐 .gitignore 예시
-API 키 유출을 방지하기 위해 .gitignore 파일에 아래 내용을 추가합니다.
-
-gitignore
-
-.env
-__pycache__/
-results/
-단, 결과 파일을 제출해야 하는 경우에는 results/는 제외하지 않아도 됩니다.
-
-
-
-## ⚠️ Kakao 지도 API 예외 처리 보완
-
-### 평가 항목 #3 보완 내용
-
-본 프로젝트는 추천 도시를 받아 Kakao 지도 API를 호출하여 맛집 정보를 검색한다.
-
-기존 코드에서는 Kakao API 호출부가 아래와 같이 작성되어 있었다.
-
-```python
-res = requests.get(url, headers=headers, params=params)
 ```
 
-이 방식은 Kakao API 호출 자체는 가능하지만, API 요청이 실패했을 때 프로그램이 중단될 수 있다는 문제가 있다.
-
-예를 들어 다음과 같은 상황이 발생할 수 있다.
-
-| 실패 상황 | 설명 |
-|---|---|
-| 네트워크 오류 | 인터넷 연결 문제로 API 요청 실패 |
-| API 키 오류 | 잘못된 Kakao REST API 키 사용 |
-| 인증 실패 | 401 Unauthorized 발생 |
-| 권한 오류 | 403 Forbidden 발생 |
-| 서버 오류 | Kakao API 서버 장애 |
-| 응답 지연 | API 응답 시간이 길어짐 |
-| JSON 파싱 오류 | 응답을 JSON으로 변환하지 못함 |
-
-따라서 본 프로젝트에서는 Kakao API 호출 실패 시에도 전체 프로그램이 중단되지 않도록  
-**호출부에서 `try-except`를 사용해 예외를 처리하고, 실패한 경우 빈 결과로 대체하도록 보완하였다.**
-
----
-
-## ✅ 보완 목표
-
-Kakao API 호출이 실패해도 다음 흐름을 보장한다.
+설치되는 외부 패키지는 다음과 같습니다.
 
 ```text
-Kakao API 호출 시도
-        ↓
-성공하면 맛집 목록 반환
-        ↓
-실패하면 예외 포착
-        ↓
-restaurants = [] 로 빈 결과 처리
-        ↓
-errors 리스트에 오류 내용 누적
-        ↓
-리포트에는 "데이터 없음" 표시
-        ↓
-프로그램은 중단되지 않고 계속 실행
+google-generativeai
+requests
+python-dotenv
 ```
 
-즉, Kakao API 실패가 전체 여행 추천 리포트 생성 실패로 이어지지 않도록 한다.
+다음 모듈은 Python 표준 라이브러리이므로 별도 설치가 필요하지 않습니다.
+
+```text
+argparse
+json
+os
+re
+datetime
+pathlib
+```
 
 ---
 
-## ✅ 호출부 예외 처리 방식
+# 5. API Key 설정
 
-Kakao API를 사용하는 호출부에서는 다음과 같이 `try-except`를 적용한다.
+프로젝트 루트에 `.env` 파일을 만듭니다.
+
+```env
+GEMINI_API_KEY=your_gemini_key
+KAKAO_API_KEY=your_kakao_key
+```
+
+프로그램에서는 다음과 같이 읽습니다.
 
 ```python
-errors = []
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
+
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+KAKAO_KEY = os.getenv("KAKAO_API_KEY")
+```
+
+API Key를 Python 코드에 직접 작성하지 않는 것이 중요합니다.
+
+---
+
+## 5.1 보안 주의
+
+다음 파일은 공개 저장소에 올리지 않는 것을 권장합니다.
+
+```text
+.env
+```
+
+`.gitignore`:
+
+```gitignore
+.env
+__pycache__/
+```
+
+이미 API Key가 GitHub에 공개되었다면 해당 키를 폐기하고 새 Key를 발급하는 것이 안전합니다.
+
+---
+
+# 6. 실행 방법
+
+기본 실행:
+
+```bash
+python trip.py --date 2026-10-15
+```
+
+예:
+
+```bash
+python trip.py --date 2026-12-25
+```
+
+날짜는 다음 형식을 사용합니다.
+
+```text
+YYYY-MM-DD
+```
+
+예:
+
+```text
+2026-10-15
+```
+
+잘못된 예:
+
+```text
+2026/10/15
+20261015
+2026-15-10
+```
+
+---
+
+# 7. 전체 프로그램 동작 흐름
+
+현재 코드의 실제 흐름은 다음과 같습니다.
+
+```text
+사용자
+  │
+  │ --date 2026-10-15
+  ▼
+argparse
+  │
+  ▼
+valid_date()
+  │
+  ▼
+main()
+  │
+  ▼
+recommend_city()
+  │
+  ▼
+Gemini API
+  │
+  ▼
+추천 도시 1곳
+  │
+  ▼
+search_restaurants()
+  │
+  ▼
+Kakao Local API
+  │
+  ▼
+맛집 최대 5곳
+  │
+  ├───────────────┐
+  ▼               ▼
+save_report()   save_markdown()
+  │               │
+  ▼               ▼
+JSON 파일        Markdown 파일
+```
+
+---
+
+# 8. 데이터 흐름 상세
+
+## 단계 1. CLI 입력
+
+사용자가 여행 날짜를 입력합니다.
+
+```bash
+python trip.py --date 2026-10-15
+```
+
+`argparse`가 `--date` 값을 읽습니다.
+
+---
+
+## 단계 2. 날짜 검증
+
+```python
+valid_date("2026-10-15")
+```
+
+`datetime.strptime()`를 이용하여 날짜가 올바른지 확인합니다.
+
+---
+
+## 단계 3. Gemini 호출
+
+```python
+city_info = recommend_city(args.date)
+```
+
+Gemini API에 날짜를 전달합니다.
+
+---
+
+## 단계 4. 추천 도시 추출
+
+```python
+city = city_info["recommended_city"]
+```
+
+AI가 반환한 JSON에서 추천 도시를 가져옵니다.
+
+---
+
+## 단계 5. Kakao 검색
+
+```python
+restaurants = search_restaurants(city)
+```
+
+추천 도시 이름에 `" 맛집"`을 붙여 검색합니다.
+
+예:
+
+```text
+부산 맛집
+```
+
+---
+
+## 단계 6. JSON 저장
+
+```python
+filename = save_report(
+    args.date,
+    city_info,
+    restaurants
+)
+```
+
+---
+
+## 단계 7. Markdown 저장
+
+```python
+md_file = save_markdown(
+    args.date,
+    city_info,
+    restaurants
+)
+```
+
+---
+
+# 9. Gemini AI 여행지 추천
+
+## 9.1 함수
+
+```python
+def recommend_city(date: str) -> dict:
+```
+
+입력:
+
+```text
+date: str
+```
+
+출력:
+
+```text
+dict
+```
+
+---
+
+## 9.2 프롬프트
+
+현재 코드에서는 다음과 같은 형태의 프롬프트를 사용합니다.
+
+```text
+{date}에 여행하기 좋은 대한민국 국내 도시 1곳을 추천해줘.
+반드시 아래 JSON 형식으로만 답변해줘.
+
+{
+  "recommended_city": "도시 이름",
+  "weather": "예상 날씨",
+  "events": ["행사1", "행사2"],
+  "reason": "추천 이유"
+}
+```
+
+---
+
+## 9.3 JSON 응답 형식
+
+예상 응답:
+
+```json
+{
+  "recommended_city": "부산",
+  "weather": "맑고 선선함",
+  "events": [
+    "지역 행사 예시"
+  ],
+  "reason": "가을 바다와 도시 관광을 즐기기 좋음"
+}
+```
+
+---
+
+## 9.4 Gemini 응답 처리
+
+현재 코드:
+
+```python
+response = model.generate_content(
+    prompt,
+    generation_config={
+        "response_mime_type": "application/json"
+    }
+)
+
+return json.loads(response.text)
+```
+
+`response_mime_type`을 사용하여 JSON 응답을 요청하고, `json.loads()`를 이용해 Python `dict`로 변환합니다.
+
+---
+
+# 10. Gemini 모델 관리
+
+현재 모델명은 한 곳에서 관리합니다.
+
+```python
+MODEL_NAME = "gemini-flash-latest"
+```
+
+이 구조의 장점은 모델을 변경할 때 여러 함수에 흩어진 문자열을 수정할 필요가 없다는 것입니다.
+
+예를 들어 향후 모델을 변경할 경우:
+
+```python
+MODEL_NAME = "새로운-모델명"
+```
+
+한 곳만 수정하면 됩니다.
+
+---
+
+# 11. Kakao Local API 맛집 검색
+
+## 11.1 함수
+
+```python
+def search_restaurants(city: str) -> list:
+```
+
+입력:
+
+```text
+city: str
+```
+
+출력:
+
+```text
+list
+```
+
+---
+
+## 11.2 엔드포인트
+
+```text
+https://dapi.kakao.com/v2/local/search/keyword.json
+```
+
+---
+
+## 11.3 요청 헤더
+
+```python
+headers = {
+    "Authorization": f"KakaoAK {KAKAO_KEY}"
+}
+```
+
+---
+
+## 11.4 요청 파라미터
+
+```python
+params = {
+    "query": f"{city} 맛집",
+    "size": 5
+}
+```
+
+따라서 추천 도시가 부산이면:
+
+```text
+query = "부산 맛집"
+size = 5
+```
+
+입니다.
+
+---
+
+# 12. GET과 POST
+
+HTTP Method는 API가 수행하는 목적에 따라 구분합니다.
+
+| Method | 일반적인 목적 |
+|---|---|
+| GET | 기존 데이터 조회 |
+| POST | 데이터 생성 또는 요청 본문 전달 |
+
+Kakao Local API의 키워드 검색은 장소 데이터를 조회하는 작업이므로 GET 요청을 사용합니다.
+
+현재 코드:
+
+```python
+res = requests.get(
+    url,
+    headers=headers,
+    params=params
+)
+```
+
+---
+
+## 12.1 GET 요청의 특징
+
+```text
+GET
+ ↓
+URL + Query Parameter
+ ↓
+서버
+ ↓
+기존 데이터 검색
+```
+
+Kakao 검색 예:
+
+```text
+query=부산 맛집
+size=5
+```
+
+---
+
+## 12.2 실제 검색 URL 개념
+
+```text
+GET /v2/local/search/keyword.json
+    ?query=부산 맛집
+    &size=5
+```
+
+실제 HTTP 요청에서는 검색어가 URL 인코딩됩니다.
+
+---
+
+# 13. Kakao API 응답 처리
+
+Kakao API 응답에서:
+
+```python
+docs = res.json().get("documents", [])
+```
+
+를 사용합니다.
+
+즉, `documents`가 없으면 기본값으로 빈 리스트를 사용합니다.
+
+---
+
+## 13.1 맛집 데이터 변환
+
+현재 코드는 각 검색 결과에서 다음 3개 필드를 선택합니다.
+
+```python
+{
+    "name": d.get("place_name"),
+    "address": d.get("road_address_name")
+               or d.get("address_name"),
+    "url": d.get("place_url"),
+}
+```
+
+---
+
+## 13.2 필드 설명
+
+| 최종 필드 | Kakao 원본 필드 | 설명 |
+|---|---|---|
+| `name` | `place_name` | 장소 이름 |
+| `address` | `road_address_name` 또는 `address_name` | 주소 |
+| `url` | `place_url` | Kakao 장소 링크 |
+
+---
+
+# 14. JSON 리포트 생성
+
+함수:
+
+```python
+def save_report(
+    date: str,
+    city_info: dict,
+    restaurants: list
+):
+```
+
+---
+
+## 14.1 저장 폴더 생성
+
+```python
+Path("results").mkdir(exist_ok=True)
+```
+
+`results` 폴더가 없으면 생성합니다.
+
+---
+
+## 14.2 저장 데이터
+
+```python
+report = {
+    "date": date,
+    "city_info": city_info,
+    "restaurants": restaurants,
+}
+```
+
+---
+
+## 14.3 파일명
+
+```python
+filename = f"results/report_{date}.json"
+```
+
+예:
+
+```text
+results/report_2026-10-15.json
+```
+
+---
+
+# 15. JSON 결과 예시
+
+```json
+{
+  "date": "2026-10-15",
+  "city_info": {
+    "recommended_city": "부산",
+    "weather": "맑고 선선함",
+    "events": [
+      "지역 행사 예시"
+    ],
+    "reason": "가을 바다와 도시 관광을 즐기기 좋음"
+  },
+  "restaurants": [
+    {
+      "name": "예시 맛집",
+      "address": "부산 해운대구",
+      "url": "https://place.map.kakao.com/"
+    }
+  ]
+}
+```
+
+JSON은 프로그램에서 재사용하기 쉬운 구조화 데이터입니다.
+
+---
+
+# 16. Markdown 리포트
+
+함수:
+
+```python
+def save_markdown(
+    date: str,
+    city_info: dict,
+    restaurants: list
+):
+```
+
+---
+
+## 16.1 도시 정보 추출
+
+```python
+city = city_info["recommended_city"]
+weather = city_info["weather"]
+events = city_info["events"]
+reason = city_info["reason"]
+```
+
+---
+
+## 16.2 행사 목록
+
+```python
+events_md = "\n".join(
+    [f"- {e}" for e in events]
+)
+```
+
+예:
+
+```markdown
+- 지역 행사 1
+- 지역 행사 2
+```
+
+---
+
+## 16.3 맛집 표
+
+```markdown
+| 맛집 이름 | 주소 | 링크 |
+|---|---|---|
+| 예시 맛집 | 부산 해운대구 | [바로가기](https://place.map.kakao.com/) |
+```
+
+---
+
+# 17. Markdown 결과 예시
+
+```markdown
+# 🧳 2026-10-15 여행 리포트
+
+## 📍 추천 도시: 부산
+
+- **예상 날씨:** 맑고 선선함
+- **추천 이유:** 가을 바다와 도시 관광을 즐기기 좋음
+
+## 🎉 주요 행사
+
+- 지역 행사 예시
+
+## 🍜 추천 맛집
+
+| 맛집 이름 | 주소 | 링크 |
+|---|---|---|
+| 예시 맛집 | 부산 해운대구 | [바로가기](https://place.map.kakao.com/) |
+```
+
+---
+
+# 18. 날짜 검증
+
+함수:
+
+```python
+def valid_date(s: str) -> str:
+```
+
+구현:
+
+```python
 try:
+    datetime.strptime(s, "%Y-%m-%d")
+    return s
+except ValueError:
+    raise argparse.ArgumentTypeError(
+        f"날짜 형식이 잘못됐어요: {s} (YYYY-MM-DD 형식으로!)"
+    )
+```
+
+---
+
+## 18.1 정상 입력
+
+```text
+2026-10-15
+```
+
+---
+
+## 18.2 잘못된 입력
+
+```text
+2026/10/15
+```
+
+또는:
+
+```text
+20261015
+```
+
+이 경우 `ArgumentTypeError`가 발생합니다.
+
+---
+
+# 19. argparse
+
+메인 함수에서는 다음과 같이 CLI 인자를 정의합니다.
+
+```python
+parser = argparse.ArgumentParser(
+    description="여행지 추천 리포트 생성기"
+)
+
+parser.add_argument(
+    "--date",
+    type=valid_date,
+    required=True,
+    help="여행 날짜 (예: 2025-12-25)"
+)
+```
+
+따라서 `--date`는 필수 입력입니다.
+
+---
+
+# 20. main 함수
+
+현재 프로그램의 핵심 실행 흐름은 `main()`에 있습니다.
+
+```python
+def main():
+    parser = argparse.ArgumentParser(
+        description="여행지 추천 리포트 생성기"
+    )
+
+    parser.add_argument(
+        "--date",
+        type=valid_date,
+        required=True,
+        help="여행 날짜 (예: 2025-12-25)"
+    )
+
+    args = parser.parse_args()
+
+    print(f"\n🔍 {args.date} 여행지를 추천받는 중...")
+    city_info = recommend_city(args.date)
+
+    city = city_info["recommended_city"]
+
+    print(f"✅ 추천 도시: {city}")
+
+    print(f"🍜 {city} 맛집을 검색하는 중...")
     restaurants = search_restaurants(city)
 
-except Exception as e:
-    restaurants = []
-    errors.append({
-        "step": "kakao_restaurant_search",
-        "city": city,
-        "message": str(e)
-    })
+    print(f"✅ 맛집 {len(restaurants)}곳을 찾았어요!")
+
+    filename = save_report(
+        args.date,
+        city_info,
+        restaurants
+    )
+
+    print(f"\n🎉 리포트 저장 완료: {filename}")
+
+    md_file = save_markdown(
+        args.date,
+        city_info,
+        restaurants
+    )
+
+    print(f"📄 Markdown 리포트 저장: {md_file}")
 ```
 
-### 코드 설명
+---
 
-| 코드 | 역할 |
+# 21. 함수별 입력/출력 인터페이스 명세
+
+현재 실제 코드 기준으로 각 함수의 인터페이스를 정리합니다.
+
+| 함수 | 입력 | 출력 | 역할 |
+|---|---|---|---|
+| `recommend_city()` | `date: str` | `dict` | Gemini 여행지 추천 |
+| `search_restaurants()` | `city: str` | `list` | Kakao 맛집 검색 |
+| `save_report()` | 날짜, 도시정보, 맛집 | 파일 경로 | JSON 저장 |
+| `save_markdown()` | 날짜, 도시정보, 맛집 | 파일 경로 | Markdown 저장 |
+| `valid_date()` | `s: str` | `str` | 날짜 검증 |
+| `main()` | CLI 인자 | 없음 | 전체 실행 |
+
+---
+
+# 22. `recommend_city()` 인터페이스
+
+## 입력
+
+```text
+date: str
+```
+
+예:
+
+```text
+"2026-10-15"
+```
+
+## 출력
+
+```text
+dict
+```
+
+예:
+
+```json
+{
+  "recommended_city": "부산",
+  "weather": "맑음",
+  "events": [],
+  "reason": "추천 이유"
+}
+```
+
+## 예외 가능성
+
+현재 코드에서는 다음 상황에 대한 별도 `try-except`가 없습니다.
+
+- Gemini API 인증 오류
+- 네트워크 오류
+- API 사용량 오류
+- 응답 파싱 오류
+- 예상하지 못한 JSON 구조
+
+따라서 이 부분은 향후 개선 대상입니다.
+
+---
+
+# 23. `search_restaurants()` 인터페이스
+
+## 입력
+
+```text
+city: str
+```
+
+예:
+
+```text
+"부산"
+```
+
+## 출력
+
+```text
+list
+```
+
+예:
+
+```json
+[
+  {
+    "name": "예시 맛집",
+    "address": "부산 해운대구",
+    "url": "https://place.map.kakao.com/"
+  }
+]
+```
+
+## 현재 구현
+
+```python
+res = requests.get(
+    url,
+    headers=headers,
+    params=params
+)
+
+res.raise_for_status()
+```
+
+HTTP 오류가 발생하면 `raise_for_status()`가 예외를 발생시킵니다.
+
+현재 코드에서는 이 예외를 별도의 `try-except`로 감싸지 않았습니다.
+
+---
+
+# 24. `save_report()` 인터페이스
+
+입력:
+
+```text
+date: str
+city_info: dict
+restaurants: list
+```
+
+출력:
+
+```text
+results/report_YYYY-MM-DD.json
+```
+
+---
+
+# 25. `save_markdown()` 인터페이스
+
+입력:
+
+```text
+date: str
+city_info: dict
+restaurants: list
+```
+
+출력:
+
+```text
+results/report_YYYY-MM-DD.md
+```
+
+---
+
+# 26. 전체 데이터 구조
+
+현재 최종 JSON 구조:
+
+```text
+report
+├── date
+├── city_info
+│   ├── recommended_city
+│   ├── weather
+│   ├── events
+│   └── reason
+└── restaurants
+    ├── name
+    ├── address
+    └── url
+```
+
+---
+
+# 27. 추천 도시 데이터
+
+```json
+{
+  "recommended_city": "부산",
+  "weather": "맑음",
+  "events": [
+    "행사1",
+    "행사2"
+  ],
+  "reason": "추천 이유"
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `recommended_city` | string | 추천 도시 |
+| `weather` | string | AI가 생성한 예상 날씨 |
+| `events` | list | AI가 제시한 행사 |
+| `reason` | string | 추천 이유 |
+
+---
+
+# 28. 맛집 데이터
+
+```json
+{
+  "name": "예시 맛집",
+  "address": "부산 해운대구",
+  "url": "https://place.map.kakao.com/"
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `name` | string | 장소 이름 |
+| `address` | string | 도로명 또는 지번 주소 |
+| `url` | string | Kakao 장소 링크 |
+
+---
+
+# 29. API 예외 처리의 현재 상태
+
+현재 코드에는 다음과 같은 처리가 있습니다.
+
+```python
+res.raise_for_status()
+```
+
+이 코드는 HTTP 상태 코드가 오류인 경우 예외를 발생시키는 역할을 합니다.
+
+그러나 현재 코드에는 다음 구조가 없습니다.
+
+```python
+try:
+    ...
+except requests.exceptions.Timeout:
+    ...
+except requests.exceptions.HTTPError:
+    ...
+except requests.exceptions.RequestException:
+    ...
+```
+
+따라서 이 부분은 **현재 구현 기능이 아니라 향후 보완 항목**으로 분류합니다.
+
+---
+
+# 30. 평가 관점에서 중요한 예외 처리
+
+외부 API는 항상 성공한다고 가정하면 안 됩니다.
+
+가능한 실패 상황:
+
+| 상황 | 설명 |
 |---|---|
-| `try` | Kakao API를 이용해 맛집 검색 시도 |
-| `search_restaurants(city)` | 추천 도시를 기준으로 맛집 검색 |
-| `except Exception as e` | API 호출 실패 시 예외 포착 |
-| `restaurants = []` | 실패해도 빈 리스트로 대체 |
-| `errors.append(...)` | 실패한 단계, 도시, 오류 메시지를 기록 |
+| 네트워크 오류 | 인터넷 연결 문제 |
+| API Key 오류 | 잘못된 API Key |
+| 인증 오류 | 401 등 |
+| 권한 오류 | 403 등 |
+| 서버 오류 | 5xx |
+| 응답 지연 | 서버 응답 지연 |
+| JSON 오류 | 응답 파싱 실패 |
+| 검색 결과 없음 | `documents`가 비어 있음 |
 
-이 구조를 통해 Kakao API 호출에 실패하더라도  
-`restaurants`에는 항상 리스트가 들어가므로 이후 리포트 생성 과정이 안전하게 진행된다.
-
----
-
-## ✅ 여러 추천 도시를 처리하는 경우
-
-추천 도시가 여러 개인 경우에는 각 도시마다 API 실패를 개별적으로 처리한다.
+현재 코드에서는 `documents`가 없을 때:
 
 ```python
-results = []
-errors = []
-
-for city in recommended_cities:
-    try:
-        restaurants = search_restaurants(city)
-
-    except Exception as e:
-        restaurants = []
-        errors.append({
-            "step": "kakao_restaurant_search",
-            "city": city,
-            "message": str(e)
-        })
-
-    results.append({
-        "city": city,
-        "restaurants": restaurants
-    })
+res.json().get("documents", [])
 ```
 
-이 방식의 장점은 다음과 같다.
-
-- 특정 도시의 Kakao API 호출이 실패해도 전체 프로그램이 중단되지 않는다.
-- 실패한 도시만 맛집 정보를 빈 목록으로 처리할 수 있다.
-- 다른 추천 도시의 맛집 검색은 계속 진행된다.
-- 오류 내용은 `errors` 리스트에 누적되어 나중에 확인할 수 있다.
-
-예를 들어 부산 맛집 검색이 실패하더라도, 제주나 서울 맛집 검색은 계속 진행된다.
+를 사용하여 빈 리스트를 반환할 수 있도록 되어 있습니다.
 
 ---
 
-## ✅ Kakao API 함수 내부 예외 처리 예시
+# 31. 예외 처리 개선 설계
 
-Kakao API를 직접 호출하는 함수 내부에서도 기본적인 예외 처리를 적용할 수 있다.
+향후 Kakao API는 다음과 같이 보완할 수 있습니다.
 
 ```python
-import requests
-
-def search_restaurants(city, kakao_api_key):
+def search_restaurants(city: str) -> list:
     url = "https://dapi.kakao.com/v2/local/search/keyword.json"
 
     headers = {
-        "Authorization": f"KakaoAK {kakao_api_key}"
+        "Authorization": f"KakaoAK {KAKAO_KEY}"
     }
 
     params = {
@@ -373,7 +1260,7 @@ def search_restaurants(city, kakao_api_key):
         return []
 
     except requests.exceptions.HTTPError as e:
-        print(f"[ERROR] Kakao API HTTP 오류 발생: {e}")
+        print(f"[ERROR] Kakao API HTTP 오류: {e}")
         return []
 
     except requests.exceptions.RequestException as e:
@@ -385,2542 +1272,3275 @@ def search_restaurants(city, kakao_api_key):
         return []
 ```
 
-### 핵심 처리
-
-| 처리 | 설명 |
-|---|---|
-| `timeout=5` | API 응답을 무한정 기다리지 않도록 제한 |
-| `raise_for_status()` | 401, 403, 500 등 HTTP 오류 감지 |
-| `data.get("documents", [])` | 검색 결과가 없을 때 빈 리스트 반환 |
-| `return []` | 실패 시에도 프로그램이 계속 실행되도록 빈 결과 반환 |
+> 위 코드는 **현재 `trip.py`에 적용된 코드가 아니라 향후 개선 예시**입니다.
 
 ---
 
-## ✅ 리포트 생성 시 "데이터 없음" 처리
+# 32. timeout의 필요성
 
-Kakao API 호출이 실패하면 `restaurants`에는 빈 리스트 `[]`가 들어간다.  
-따라서 Markdown 리포트 생성 시 빈 리스트 여부를 확인하고 `"데이터 없음"`으로 표시한다.
+현재:
 
 ```python
-def make_restaurant_section(restaurants):
-    if not restaurants:
-        return "### 🍽️ 추천 맛집\n\n> 데이터 없음\n"
-
-    markdown = "### 🍽️ 추천 맛집\n\n"
-    markdown += "| 맛집 이름 | 주소 | 링크 |\n"
-    markdown += "|---|---|---|\n"
-
-    for restaurant in restaurants:
-        name = restaurant.get("place_name", "이름 없음")
-        address = restaurant.get("address_name", "주소 없음")
-        url = restaurant.get("place_url", "")
-
-        markdown += f"| {name} | {address} | [보기]({url}) |\n"
-
-    return markdown
+requests.get(
+    url,
+    headers=headers,
+    params=params
+)
 ```
 
-예상 출력은 다음과 같다.
+향후:
+
+```python
+requests.get(
+    url,
+    headers=headers,
+    params=params,
+    timeout=5
+)
+```
+
+`timeout=5`를 설정하면 API 서버가 계속 응답하지 않는 상황에서 프로그램이 무한정 기다리는 것을 방지할 수 있습니다.
+
+---
+
+# 33. 우아한 실패 처리
+
+이 프로젝트에서 중요한 설계 방향은 외부 API 실패와 전체 프로그램 실패를 분리하는 것입니다.
+
+개선된 구조:
+
+```text
+Kakao API 호출
+      ↓
+성공 ───────→ 맛집 목록
+      │
+실패
+      ↓
+예외 처리
+      ↓
+[]
+      ↓
+Markdown에 "데이터 없음"
+      ↓
+전체 리포트 생성 계속
+```
+
+현재 코드에서는 이 구조가 완전히 구현되어 있지 않으므로 향후 보완 대상입니다.
+
+---
+
+# 34. "데이터 없음" 처리 설계
+
+맛집 검색 결과가 빈 리스트라면 Markdown에서 다음과 같이 표현할 수 있습니다.
 
 ```markdown
-### 🍽️ 추천 맛집
+## 🍽️ 추천 맛집
 
 > 데이터 없음
 ```
 
-이를 통해 사용자는 맛집 정보가 없거나 API 호출에 실패했다는 상황을 명확히 알 수 있다.
-
----
-
-## ✅ 오류 누적 리포트 처리
-
-Kakao API 호출 중 발생한 오류는 `errors` 리스트에 누적한다.  
-필요한 경우 Markdown 리포트 마지막에 오류 기록을 함께 출력할 수 있다.
+개선 함수 예:
 
 ```python
-def make_error_section(errors):
-    if not errors:
-        return ""
+def make_restaurant_section(restaurants):
+    if not restaurants:
+        return "## 🍽️ 추천 맛집\n\n> 데이터 없음\n"
 
-    markdown = "\n## ⚠️ 오류 기록\n\n"
-    markdown += "| 단계 | 도시 | 오류 메시지 |\n"
+    markdown = "## 🍽️ 추천 맛집\n\n"
+    markdown += "| 맛집 이름 | 주소 | 링크 |\n"
     markdown += "|---|---|---|\n"
 
-    for error in errors:
-        step = error.get("step", "unknown")
-        city = error.get("city", "-")
-        message = error.get("message", "")
+    for restaurant in restaurants:
+        name = restaurant.get("name", "이름 없음")
+        address = restaurant.get("address", "주소 없음")
+        url = restaurant.get("url", "")
 
-        markdown += f"| {step} | {city} | {message} |\n"
+        markdown += (
+            f"| {name} | {address} | [보기]({url}) |\n"
+        )
 
     return markdown
 ```
 
-예상 출력은 다음과 같다.
+---
+
+# 35. 오류 누적 설계
+
+향후에는 오류를 단순 출력하는 대신 데이터로 기록할 수 있습니다.
+
+예:
+
+```json
+{
+  "step": "kakao_restaurant_search",
+  "city": "부산",
+  "message": "401 Client Error: Unauthorized"
+}
+```
+
+여러 오류를:
+
+```python
+errors = []
+```
+
+에 누적할 수 있습니다.
+
+---
+
+# 36. 오류 리포트 설계
+
+Markdown 마지막에 다음과 같이 표시할 수 있습니다.
 
 ```markdown
 ## ⚠️ 오류 기록
 
 | 단계 | 도시 | 오류 메시지 |
 |---|---|---|
-| kakao_restaurant_search | 부산 | 401 Client Error: Unauthorized |
+| kakao_restaurant_search | 부산 | 401 Unauthorized |
 ```
 
+이를 통해 사용자는 프로그램이 어떤 단계에서 문제가 발생했는지 확인할 수 있습니다.
+
 ---
 
-## ✅ 전체 적용 예시
+# 37. LLM JSON 응답의 문제
 
-아래는 Kakao API 실패 시에도 전체 리포트 생성이 계속되도록 구성한 예시이다.
+LLM은 일반적인 Python 함수와 달리 항상 같은 형태로 응답한다고 보장하기 어렵습니다.
 
-```python
-def build_trip_report(recommended_cities):
-    results = []
-    errors = []
+예상:
 
-    for city in recommended_cities:
-        try:
-            restaurants = search_restaurants(city)
-
-        except Exception as e:
-            restaurants = []
-            errors.append({
-                "step": "kakao_restaurant_search",
-                "city": city,
-                "message": str(e)
-            })
-
-        results.append({
-            "city": city,
-            "restaurants": restaurants
-        })
-
-    markdown = "# 🧳 AI 여행 추천 리포트\n\n"
-
-    for item in results:
-        city = item["city"]
-        restaurants = item["restaurants"]
-
-        markdown += f"## 📍 추천 도시: {city}\n\n"
-        markdown += make_restaurant_section(restaurants)
-        markdown += "\n"
-
-    markdown += make_error_section(errors)
-
-    return markdown
+```json
+{
+  "recommended_city": "부산",
+  "weather": "맑음",
+  "events": [],
+  "reason": "추천 이유"
+}
 ```
 
-이 구조에서는 `search_restaurants(city)` 호출이 실패하더라도  
-`except` 블록에서 `restaurants = []`로 대체한다.
-
-따라서 Kakao 지도 API에 문제가 발생해도 Markdown 리포트 생성은 중단되지 않는다.
-
----
-
-## ✅ 보완 결과
-
-이번 보완을 통해 다음 사항을 만족한다.
-
-| 항목 | 보완 내용 |
-|---|---|
-| API 실패 시 중단 방지 | `try-except`로 예외 포착 |
-| 빈 결과 처리 | 실패 시 `restaurants = []` 적용 |
-| 오류 누적 | `errors` 리스트에 실패 정보 저장 |
-| 리포트 생성 유지 | 맛집 정보가 없어도 Markdown 생성 계속 |
-| 사용자 안내 | 맛집 영역에 `"데이터 없음"` 표시 |
-
----
-
-## ✅ 정리
-
-Kakao 지도 API는 외부 서비스이므로 항상 성공한다고 보장할 수 없다.  
-따라서 본 프로젝트에서는 Kakao API 호출 실패 시 호출부에서 예외를 포착하고,  
-맛집 검색 결과를 빈 리스트 `[]`로 대체한다.
-
-또한 오류 내용은 `errors` 리스트에 누적하여 추후 확인할 수 있도록 하며,  
-리포트 생성 단계에서는 빈 맛집 목록을 감지해 `"데이터 없음"`으로 표시한다.
-
-이를 통해 Kakao API 호출이 실패하더라도 전체 여행 추천 프로그램은 중단되지 않고 정상적으로 결과 리포트를 생성할 수 있다.
-
-
-## 🔌 함수별 입력/출력 인터페이스 명세
-
-본 프로젝트는 여러 함수가 데이터를 주고받으며 여행 추천 리포트를 생성한다.  
-각 함수의 역할과 입력값, 출력값, 예외 상황을 명확히 하기 위해 아래와 같이 인터페이스를 정의한다.
-
----
-
-## 📌 전체 데이터 흐름
+하지만 실제 응답이 다음과 같이 올 수도 있습니다.
 
 ```text
-CLI 날짜 입력
-    ↓
-parse_args()
-    ↓
-validate_date()
-    ↓
-load_api_keys()
-    ↓
-recommend_cities()
-    ↓
-search_restaurants()
-    ↓
-build_trip_data()
-    ↓
-make_markdown_report()
-    ↓
-save_json(), save_markdown()
-```
+여행하기 좋은 도시를 추천해 드리겠습니다.
 
----
-
-## ✅ 주요 데이터 구조
-
-### 1. 추천 도시 데이터
-
-```python
 {
-    "city": "부산",
-    "reason": "겨울 바다와 야경을 즐기기 좋음"
+  "recommended_city": "부산"
 }
 ```
 
-| 필드 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `city` | `str` | `"부산"` | 추천 도시 이름 |
-| `reason` | `str` | `"겨울 바다와 야경을 즐기기 좋음"` | 추천 이유 |
+또는 JSON 문법이 깨질 수도 있습니다.
+
+따라서 향후에는 JSON 파싱 실패에 대한 별도 처리가 필요합니다.
 
 ---
 
-### 2. 맛집 데이터
+# 38. LLM 응답 검증 개선 설계
 
-Kakao Local API에서 받은 맛집 정보는 다음 형태로 사용한다.
+향후 다음 단계로 구성할 수 있습니다.
 
-```python
-{
-    "place_name": "해운대암소갈비집",
-    "address_name": "부산 해운대구 중동",
-    "road_address_name": "부산 해운대구 중동2로10번길 32-10",
-    "phone": "051-746-0033",
-    "place_url": "https://place.map.kakao.com/123456"
-}
+```text
+Gemini 응답
+   ↓
+JSON 파싱
+   ↓
+성공
+   ↓
+필수 키 확인
+   ↓
+타입 확인
+   ↓
+정상 데이터
 ```
 
-| 필드 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `place_name` | `str` | `"해운대암소갈비집"` | 맛집 이름 |
-| `address_name` | `str` | `"부산 해운대구 중동"` | 지번 주소 |
-| `road_address_name` | `str` | `"부산 해운대구 중동2로10번길 32-10"` | 도로명 주소 |
-| `phone` | `str` | `"051-746-0033"` | 전화번호 |
-| `place_url` | `str` | `"https://place.map.kakao.com/123456"` | 카카오맵 상세 링크 |
+실패:
 
----
-
-### 3. 오류 데이터
-
-API 호출 실패나 처리 오류는 `errors` 리스트에 누적한다.
-
-```python
-{
-    "step": "kakao_restaurant_search",
-    "city": "부산",
-    "message": "401 Client Error: Unauthorized"
-}
-```
-
-| 필드 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `step` | `str` | `"kakao_restaurant_search"` | 오류 발생 단계 |
-| `city` | `str` | `"부산"` | 오류가 발생한 도시 |
-| `message` | `str` | `"401 Client Error: Unauthorized"` | 오류 메시지 |
-
----
-
-## ✅ 함수별 입력/출력 표
-
----
-
-## 1. `parse_args()`
-
-CLI에서 사용자가 입력한 날짜 옵션을 읽는 함수이다.
-
-### 입력값
-
-| 파라미터 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| 없음 | - | `python trip.py --date 2025-12-25` | CLI 인자를 내부에서 읽음 |
-
-### 출력값
-
-| 반환값 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `args` | `argparse.Namespace` | `Namespace(date='2025-12-25')` | CLI 인자 객체 |
-
-### 예외 상황
-
-| 상황 | 처리 방식 |
-|---|---|
-| `--date`가 없는 경우 | argparse가 사용법을 출력하고 종료 |
-| 잘못된 옵션 입력 | argparse가 오류 메시지를 출력하고 종료 |
-
----
-
-## 2. `validate_date(date_str)`
-
-입력된 날짜 문자열이 올바른 형식인지 검사하는 함수이다.
-
-### 입력값
-
-| 파라미터 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `date_str` | `str` | `"2025-12-25"` | 사용자가 입력한 여행 날짜 |
-
-### 출력값
-
-| 반환값 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `date_str` | `str` | `"2025-12-25"` | 검증이 완료된 날짜 문자열 |
-
-### 예외 상황
-
-| 상황 | 처리 방식 |
-|---|---|
-| 날짜 형식이 `YYYY-MM-DD`가 아님 | `ValueError` 발생 |
-| 존재하지 않는 날짜 입력 | `ValueError` 발생 |
-
-### 예시
-
-```python
-validate_date("2025-12-25")
-# 반환값: "2025-12-25"
+```text
+JSON 파싱 실패
+   ↓
+오류 기록
+   ↓
+1회 재요청
+   ↓
+재요청 응답 검증
 ```
 
 ---
 
-## 3. `load_api_keys()`
-
-`.env` 파일에서 Gemini API 키와 Kakao API 키를 불러오는 함수이다.
-
-### 입력값
-
-| 파라미터 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| 없음 | - | `.env` 파일 사용 | 환경 변수에서 API 키를 읽음 |
-
-### 출력값
-
-| 반환값 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `gemini_api_key` | `str` | `"AIza..."` | Gemini API 키 |
-| `kakao_api_key` | `str` | `"abc123..."` | Kakao REST API 키 |
-
-### 예외 상황
-
-| 상황 | 처리 방식 |
-|---|---|
-| `GEMINI_API_KEY`가 없음 | `ValueError` 발생 |
-| `KAKAO_API_KEY`가 없음 | `ValueError` 발생 |
-| `.env` 파일이 없음 | 환경 변수가 비어 있으면 `ValueError` 발생 |
-
-### 예시
+# 39. 필수 키 검증 예시
 
 ```python
-gemini_key, kakao_key = load_api_keys()
-```
+def validate_city_info(data):
+    if not isinstance(data, dict):
+        raise ValueError("응답은 dict여야 합니다.")
 
----
-
-## 4. `recommend_cities(date_str, gemini_api_key)`
-
-Gemini API를 사용하여 여행 날짜에 어울리는 도시를 추천하는 함수이다.
-
-### 입력값
-
-| 파라미터 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `date_str` | `str` | `"2025-12-25"` | 여행 날짜 |
-| `gemini_api_key` | `str` | `"AIza..."` | Gemini API 키 |
-
-### 출력값
-
-| 반환값 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `cities` | `list[dict]` | `[{"city": "부산", "reason": "겨울 바다를 즐기기 좋음"}]` | 추천 도시 목록 |
-
-### 예외 상황
-
-| 상황 | 처리 방식 |
-|---|---|
-| Gemini API 호출 실패 | 호출부에서 예외 처리 |
-| 응답 형식이 예상과 다름 | 빈 리스트 `[]` 또는 기본 추천값 사용 |
-| 추천 도시가 없음 | 빈 리스트 `[]` 반환 가능 |
-
-### 예시
-
-```python
-cities = recommend_cities("2025-12-25", gemini_api_key)
-
-# 예시 반환값
-[
-    {
-        "city": "부산",
-        "reason": "겨울 바다와 야경을 즐기기 좋음"
-    },
-    {
-        "city": "제주",
-        "reason": "온화한 겨울 날씨로 여행하기 좋음"
-    }
-]
-```
-
----
-
-## 5. `search_restaurants(city, kakao_api_key)`
-
-Kakao Local API를 호출하여 특정 도시의 맛집을 검색하는 함수이다.
-
-### 입력값
-
-| 파라미터 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `city` | `str` | `"부산"` | 맛집을 검색할 도시 |
-| `kakao_api_key` | `str` | `"abc123..."` | Kakao REST API 키 |
-
-### 출력값
-
-| 반환값 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `restaurants` | `list[dict]` | `[{"place_name": "해운대암소갈비집", "address_name": "부산 해운대구 중동"}]` | 맛집 목록 |
-| 실패 시 | `list` | `[]` | API 실패 또는 검색 결과 없음 |
-
-### 예외 상황
-
-| 상황 | 처리 방식 |
-|---|---|
-| 네트워크 오류 | 호출부에서 `try-except`로 처리 |
-| API 키 오류 | 호출부에서 `try-except`로 처리 |
-| 401, 403, 500 등 HTTP 오류 | 호출부에서 `try-except`로 처리 |
-| 타임아웃 | 호출부에서 `try-except`로 처리 |
-| JSON 파싱 실패 | 호출부에서 `try-except`로 처리 |
-| 검색 결과 없음 | 빈 리스트 `[]` 처리 |
-
-### 예시
-
-```python
-restaurants = search_restaurants("부산", kakao_api_key)
-
-# 예시 반환값
-[
-    {
-        "place_name": "해운대암소갈비집",
-        "address_name": "부산 해운대구 중동",
-        "road_address_name": "부산 해운대구 중동2로10번길 32-10",
-        "phone": "051-746-0033",
-        "place_url": "https://place.map.kakao.com/123456"
-    }
-]
-```
-
----
-
-## 6. `collect_restaurants_for_cities(cities, kakao_api_key)`
-
-추천 도시 목록을 순회하면서 각 도시의 맛집을 검색하는 함수이다.  
-이 함수는 Kakao API 실패 시에도 프로그램이 중단되지 않도록 호출부 예외 처리를 담당한다.
-
-### 입력값
-
-| 파라미터 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `cities` | `list[dict]` | `[{"city": "부산", "reason": "겨울 바다 여행"}]` | 추천 도시 목록 |
-| `kakao_api_key` | `str` | `"abc123..."` | Kakao REST API 키 |
-
-### 출력값
-
-| 반환값 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `results` | `list[dict]` | `[{"city": "부산", "reason": "...", "restaurants": []}]` | 도시별 맛집 검색 결과 |
-| `errors` | `list[dict]` | `[{"step": "kakao_restaurant_search", "city": "부산", "message": "..."}]` | 오류 누적 목록 |
-
-### 예외 상황
-
-| 상황 | 처리 방식 |
-|---|---|
-| 특정 도시의 Kakao API 호출 실패 | 해당 도시의 `restaurants`를 `[]`로 처리 |
-| 일부 도시만 실패 | 나머지 도시는 계속 처리 |
-| 모든 도시 실패 | 모든 도시의 `restaurants`를 `[]`로 처리하고 리포트 생성 계속 |
-| 오류 발생 | `errors` 리스트에 오류 정보 누적 |
-
-### 예시 코드
-
-```python
-def collect_restaurants_for_cities(cities, kakao_api_key):
-    results = []
-    errors = []
-
-    for item in cities:
-        city = item.get("city", "")
-
-        try:
-            restaurants = search_restaurants(city, kakao_api_key)
-
-        except Exception as e:
-            restaurants = []
-            errors.append({
-                "step": "kakao_restaurant_search",
-                "city": city,
-                "message": str(e)
-            })
-
-        results.append({
-            "city": city,
-            "reason": item.get("reason", ""),
-            "restaurants": restaurants
-        })
-
-    return results, errors
-```
-
-### 예시 반환값
-
-```python
-results = [
-    {
-        "city": "부산",
-        "reason": "겨울 바다와 야경을 즐기기 좋음",
-        "restaurants": []
-    }
-]
-
-errors = [
-    {
-        "step": "kakao_restaurant_search",
-        "city": "부산",
-        "message": "401 Client Error: Unauthorized"
-    }
-]
-```
-
----
-
-## 7. `build_trip_data(date_str, city_results, errors)`
-
-추천 도시, 맛집 결과, 오류 목록을 하나의 JSON 저장용 데이터로 묶는 함수이다.
-
-### 입력값
-
-| 파라미터 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `date_str` | `str` | `"2025-12-25"` | 여행 날짜 |
-| `city_results` | `list[dict]` | `[{"city": "부산", "restaurants": []}]` | 도시별 맛집 결과 |
-| `errors` | `list[dict]` | `[{"step": "kakao_restaurant_search", "city": "부산", "message": "..."}]` | 오류 목록 |
-
-### 출력값
-
-| 반환값 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `trip_data` | `dict` | `{"date": "2025-12-25", "cities": [...], "errors": [...]}` | 최종 결과 데이터 |
-
-### 예시
-
-```python
-trip_data = build_trip_data("2025-12-25", city_results, errors)
-
-# 예시 반환값
-{
-    "date": "2025-12-25",
-    "cities": [
-        {
-            "city": "부산",
-            "reason": "겨울 바다와 야경을 즐기기 좋음",
-            "restaurants": []
-        }
-    ],
-    "errors": [
-        {
-            "step": "kakao_restaurant_search",
-            "city": "부산",
-            "message": "401 Client Error: Unauthorized"
-        }
+    required = [
+        "recommended_city",
+        "weather",
+        "events",
+        "reason"
     ]
+
+    for key in required:
+        if key not in data:
+            raise ValueError(
+                f"필수 키가 없습니다: {key}"
+            )
+
+    if not isinstance(data["events"], list):
+        raise ValueError(
+            "events는 list여야 합니다."
+        )
+
+    return True
+```
+
+> 이 코드는 현재 코드에 추가되어 있지 않은 **개선 예시**입니다.
+
+---
+
+# 40. LLM 1회 재요청 정책
+
+향후 JSON 파싱 실패 시 무한 재요청이 아니라 최대 1회만 재요청하도록 제한할 수 있습니다.
+
+```text
+1차 요청
+   ↓
+파싱 성공 → 종료
+   ↓
+파싱 실패
+   ↓
+보정 프롬프트
+   ↓
+2차 요청
+   ↓
+성공 → 종료
+실패 → 오류 기록 및 빈 결과
+```
+
+---
+
+# 41. 보정 프롬프트 예시
+
+```text
+이전 응답은 JSON 파싱에 실패했습니다.
+
+이번에는 설명, 마크다운, 코드블록 없이
+순수 JSON만 출력하십시오.
+
+반드시 다음 스키마를 지키십시오.
+
+{
+  "recommended_city": "문자열",
+  "weather": "문자열",
+  "events": ["문자열"],
+  "reason": "문자열"
 }
+
+JSON 외의 문장을 포함하지 마십시오.
 ```
 
 ---
 
-## 8. `make_restaurant_section(restaurants)`
+# 42. 동일 날짜 캐싱 설계
 
-맛집 목록을 Markdown 형식으로 변환하는 함수이다.  
-맛집 데이터가 없으면 `"데이터 없음"`을 표시한다.
+현재 코드에는 캐싱이 구현되어 있지 않습니다.
 
-### 입력값
+그러나 같은 날짜를 반복해서 요청하면:
 
-| 파라미터 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `restaurants` | `list[dict]` | `[{"place_name": "해운대암소갈비집"}]` | 맛집 목록 |
-| 빈 목록 | `list` | `[]` | API 실패 또는 검색 결과 없음 |
+```text
+Gemini API
+↓
+Kakao API
+↓
+파일 생성
+```
 
-### 출력값
+을 매번 반복하게 됩니다.
 
-| 반환값 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `markdown` | `str` | `"### 🍽️ 추천 맛집\n\n> 데이터 없음"` | 맛집 Markdown 문자열 |
+향후에는 날짜를 캐시 키로 사용할 수 있습니다.
 
-### 예외 상황
+```text
+2026-10-15
+        ↓
+results/cache/report_2026-10-15.json
+```
 
-| 상황 | 처리 방식 |
+---
+
+# 43. 캐시 흐름
+
+개선 설계:
+
+```text
+사용자 날짜 입력
+       ↓
+캐시 확인
+       │
+       ├── 존재 → 기존 결과 사용
+       │
+       └── 없음
+             ↓
+          Gemini API
+             ↓
+          Kakao API
+             ↓
+          결과 저장
+             ↓
+          캐시 저장
+```
+
+---
+
+# 44. 캐시의 장점
+
+- API 호출 감소
+- 실행 시간 단축
+- 같은 날짜 결과 재사용
+- API 사용량 절감
+- 개발 및 테스트 편의성 향상
+
+---
+
+# 45. 도시명 정규화
+
+현재 코드는 Gemini가 반환한 `recommended_city`를 그대로 Kakao 검색에 사용합니다.
+
+예:
+
+```text
+부산
+```
+
+→
+
+```text
+부산 맛집
+```
+
+그러나 실제 AI 응답이 다음과 같을 수 있습니다.
+
+```text
+부산 여행
+서울 강남
+광주
+해운대 근처
+```
+
+이 경우 검색 품질을 높이기 위해 도시명을 정규화할 수 있습니다.
+
+---
+
+# 46. 도시명 정규화 규칙 설계
+
+| 입력 | 정규화 예 |
 |---|---|
-| `restaurants`가 빈 리스트 | `"데이터 없음"` 출력 |
-| 특정 필드가 없음 | `"이름 없음"`, `"주소 없음"` 등 기본값 사용 |
+| `부산` | `부산광역시` |
+| `제주 여행` | `제주` |
+| `서울 강남` | `서울특별시 강남` |
+| `부산 해운대 근처` | `부산광역시 해운대` |
 
-### 예시
+가능한 처리:
 
-```python
-make_restaurant_section([])
-
-# 반환값
-"### 🍽️ 추천 맛집\n\n> 데이터 없음\n"
-```
+1. 앞뒤 공백 제거
+2. 중복 공백 제거
+3. 불필요한 단어 제거
+4. 행정구역명 보정
+5. 세부 지역 유지
+6. 검색어 생성
 
 ---
 
-## 9. `make_error_section(errors)`
-
-오류 목록을 Markdown 표로 변환하는 함수이다.
-
-### 입력값
-
-| 파라미터 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `errors` | `list[dict]` | `[{"step": "kakao_restaurant_search", "city": "부산", "message": "..."}]` | 오류 목록 |
-| 빈 목록 | `list` | `[]` | 오류 없음 |
-
-### 출력값
-
-| 반환값 | 타입 | 예시 | 설명 |
-|---|---|---|---|
-| `markdown` | `str` | `"## ⚠️ 오류 기록\n\n| 단계 | 도시 | 오류 메시지 |"` | 오류 기록 Markdown |
-| 오류 없음 | `str` | `""` | 오류가 없으면 빈 문자열 반환 |
-
-### 예시
+# 47. 정규화 함수 예시
 
 ```python
-make_error_section([
-    {
-        "step": "kakao_restaurant_search",
-        "city": "부산",
-        "message": "401 Client Error: Unauthorized"
+import re
+
+def normalize_city_name(city: str) -> str:
+    city = city.strip()
+    city = re.sub(r"\s+", " ", city)
+
+    remove_words = [
+        "여행",
+        "추천",
+        "맛집"
+    ]
+
+    for word in remove_words:
+        city = city.replace(word, "")
+
+    city = city.strip()
+
+    mapping = {
+        "부산": "부산광역시",
+        "서울": "서울특별시",
+        "대구": "대구광역시",
+        "인천": "인천광역시",
+        "광주": "광주광역시",
+        "대전": "대전광역시",
+        "울산": "울산광역시"
     }
-])
+
+    return mapping.get(city, city)
 ```
 
----
-
-## 10. `make_markdown_report(trip_data)`
-
-최종 여행 추천 결과를 Markdown 리포트 문자열로 생성하는 함수이다.
-
-### 입력값
-
-| ㅇㅇㅇ
-
-## ✅ 응답 유효성 검사 및 재시도 정책
-
-본 프로젝트는 Gemini API와 Kakao 지도 API를 사용한다.  
-외부 API 응답은 항상 정상적인 형식으로 온다고 보장할 수 없으므로, 응답 데이터에 대해 유효성 검사를 수행한다.
-
-특히 Gemini API 응답은 JSON 형식이 깨지거나 필수 키가 누락될 수 있다.  
-따라서 JSON 파싱 실패, 필수 키 누락, 타입 불일치가 발생하면 최대 3회까지 재시도한다.
+> 현재 코드에는 적용되지 않은 향후 개선 예시입니다.
 
 ---
 
-## 1. Gemini 추천 도시 응답 검증
+# 48. 지도 API 추상화 설계
 
+현재 코드에서는 `search_restaurants()`가 Kakao API를 직접 호출합니다.
 
-## 🔌 지도 API Provider 인터페이스 추상화
+향후 다른 지도 API를 추가하려면 서비스 로직과 지도 API를 분리할 수 있습니다.
 
-### 문제점
-
-기존 구현에서는 Kakao Local API 호출 코드가 서비스 로직 안에 직접 포함되어 있었다.
-
-```python
-res = requests.get(url, headers=headers, params=params)
-```
-
-이 구조는 Kakao API에 강하게 결합되어 있기 때문에 다음과 같은 문제가 있다.
-
-| 문제 | 설명 |
-|---|---|
-| API 교체 어려움 | Kakao에서 Google Maps 또는 Naver Maps로 변경할 때 여러 코드를 수정해야 함 |
-| 테스트 어려움 | 외부 API 호출이 직접 포함되어 있어 Mock 처리하기 어려움 |
-| 책임 분리 부족 | 여행 리포트 생성 로직과 지도 API 호출 로직이 섞임 |
-| 장애 대응 어려움 | 지도 API 실패 처리를 일관되게 관리하기 어려움 |
-
-따라서 지도 API 호출부를 `MapProvider` 인터페이스로 추상화하였다.
-
----
-
-## 개선 방향
-
-지도 API 호출은 공통 인터페이스인 `MapProvider`를 통해 수행한다.
+개념:
 
 ```text
 여행 추천 로직
-    ↓
-MapProvider 인터페이스
-    ↓
+       ↓
+MapProvider
+       ↓
 KakaoMapProvider
 ```
 
-향후 지도 서비스를 교체할 경우 아래처럼 구현체만 바꾸면 된다.
+향후:
 
 ```text
-여행 추천 로직
-    ↓
-MapProvider 인터페이스
-    ↓
-GoogleMapProvider 또는 NaverMapProvider
+MapProvider
+├── KakaoMapProvider
+├── NaverMapProvider
+└── GoogleMapProvider
 ```
 
 ---
 
-## 지도 Provider 인터페이스
+# 49. MapProvider 인터페이스 예시
 
 ```python
 from abc import ABC, abstractmethod
 
-
 class MapProvider(ABC):
+
     @abstractmethod
-    def search_restaurants(self, city: str) -> list[dict]:
+    def search_restaurants(
+        self,
+        city: str
+    ) -> list[dict]:
         pass
 ```
 
-### 인터페이스 설명
-
-| 항목 | 내용 |
-|---|---|
-| 인터페이스명 | `MapProvider` |
-| 메서드명 | `search_restaurants` |
-| 입력값 | `city: str` |
-| 출력값 | `list[dict]` |
-| 역할 | 특정 도시의 맛집 목록 검색 |
-| 구현체 예시 | `KakaoMapProvider`, `GoogleMapProvider`, `NaverMapProvider` |
-
 ---
 
-## Kakao Provider 구현체
+# 50. Kakao Provider 예시
 
 ```python
 class KakaoMapProvider(MapProvider):
-    def __init__(self, api_key: str):
+
+    def __init__(self, api_key):
         self.api_key = api_key
-        self.base_url = "https://dapi.kakao.com/v2/local/search/keyword.json"
 
-    def search_restaurants(self, city: str) -> list[dict]:
-        headers = {
-            "Authorization": f"KakaoAK {self.api_key}"
-        }
-
-        params = {
-            "query": f"{city} 맛집",
-            "size": 5
-        }
-
-        response = requests.get(
-            self.base_url,
-            headers=headers,
-            params=params,
-            timeout=5
-        )
-
-        response.raise_for_status()
-
-        payload = response.json()
-
-        return self._validate_and_parse_response(payload)
+    def search_restaurants(self, city):
+        ...
 ```
 
-`KakaoMapProvider`는 `MapProvider` 인터페이스를 구현한다.  
-따라서 서비스 로직은 Kakao API의 URL, 헤더, 파라미터 구조를 알 필요가 없다.
+서비스 로직은:
+
+```python
+restaurants = map_provider.search_restaurants(city)
+```
+
+만 호출할 수 있습니다.
+
+> 이 구조 역시 현재 `trip.py`에는 구현되어 있지 않은 확장 설계입니다.
 
 ---
 
-## 지도 API 교체 지점
+# 51. 현재 코드와 개선 설계의 구분
 
-지도 API 교체는 Provider 생성부에서만 수행한다.
+| 항목 | 현재 | 개선 설계 |
+|---|---:|---:|
+| Gemini 추천 | ✅ | 유지 |
+| Kakao 검색 | ✅ | 유지 |
+| JSON 저장 | ✅ | 유지 |
+| Markdown 저장 | ✅ | 유지 |
+| 날짜 검증 | ✅ | 유지 |
+| API timeout | ❌ | 추가 |
+| Kakao try-except | ❌ | 추가 |
+| LLM 검증 | 부분 | 강화 |
+| LLM 재요청 | ❌ | 추가 |
+| 캐싱 | ❌ | 추가 |
+| 도시명 정규화 | ❌ | 추가 |
+| Provider 추상화 | ❌ | 추가 |
+| 오류 누적 | ❌ | 추가 |
+| raw LLM 저장 | ❌ | 추가 |
 
-### 현재 Kakao 사용
+---
 
-```python
-map_provider = KakaoMapProvider(api_key=kakao_api_key)
+# 52. 평가 항목 대응표
+
+프로젝트 평가 시 문서에서 확인할 수 있도록 현재 상태를 정리합니다.
+
+| 평가 관점 | 설명 | 상태 |
+|---|---|---|
+| CLI 사용 | 날짜를 명령줄 인자로 입력 | 구현 |
+| 입력 검증 | 날짜 형식 확인 | 구현 |
+| LLM 활용 | Gemini API 사용 | 구현 |
+| 구조화 응답 | JSON 응답 요청 | 구현 |
+| 외부 API | Kakao Local API | 구현 |
+| HTTP 통신 | `requests.get()` | 구현 |
+| 결과 저장 | JSON | 구현 |
+| 보고서 생성 | Markdown | 구현 |
+| 환경 변수 | `.env` | 구현 |
+| 함수 분리 | 기능별 함수 | 구현 |
+| API 오류 처리 | `raise_for_status()` | 부분 |
+| timeout | 요청 시간 제한 | 개선 필요 |
+| 상세 예외 처리 | `try-except` | 개선 필요 |
+| LLM 재요청 | 실패 시 재시도 | 개선 필요 |
+| 캐싱 | 날짜별 재사용 | 개선 필요 |
+| 지명 정규화 | 검색어 보정 | 개선 필요 |
+| API 추상화 | Provider 패턴 | 개선 필요 |
+
+---
+
+# 53. 평가용 상세 설명: CLI
+
+CLI는 Command Line Interface의 약자입니다.
+
+본 프로젝트에서는 GUI 대신 터미널에서 사용자가 여행 날짜를 직접 입력합니다.
+
+```bash
+python trip.py --date 2026-10-15
 ```
 
-### 향후 Google Maps 사용
+이 방식의 장점:
 
-```python
-map_provider = GoogleMapProvider(api_key=google_api_key)
+- 실행 방법이 단순함
+- 자동화하기 쉬움
+- 스크립트에서 호출 가능
+- 서버 환경에서도 실행 가능
+- `argparse`를 이용해 입력 형식을 관리할 수 있음
+
+---
+
+# 54. 평가용 상세 설명: 함수 분리
+
+하나의 `main()` 함수 안에 모든 코드를 작성하지 않고 기능별로 함수를 분리했습니다.
+
+```text
+recommend_city()
+search_restaurants()
+save_report()
+save_markdown()
+valid_date()
 ```
 
-### 향후 Naver Maps 사용
+이렇게 분리하면 각 함수의 역할을 명확하게 확인할 수 있습니다.
+
+예:
+
+```text
+recommend_city
+→ AI 추천
+
+search_restaurants
+→ 지도 API 검색
+
+save_report
+→ JSON 저장
+
+save_markdown
+→ 문서 저장
+
+valid_date
+→ 입력 검증
+```
+
+---
+
+# 55. 평가용 상세 설명: 환경 변수
+
+API Key를 소스 코드에 직접 입력하면 GitHub 공개 시 Key가 노출될 수 있습니다.
+
+따라서:
+
+```text
+코드
+ ↓
+os.getenv()
+ ↓
+.env
+ ↓
+API Key
+```
+
+구조로 관리합니다.
+
+---
+
+# 56. 평가용 상세 설명: 구조화된 출력
+
+AI의 자유로운 텍스트 응답 대신 JSON 형식을 요구합니다.
+
+```json
+{
+  "recommended_city": "부산",
+  "weather": "맑음",
+  "events": [],
+  "reason": "추천 이유"
+}
+```
+
+이렇게 하면 프로그램이 AI 응답을 데이터로 처리할 수 있습니다.
+
+---
+
+# 57. 평가용 상세 설명: API 연동
+
+프로젝트는 두 개의 서로 다른 역할을 가진 API를 연결합니다.
+
+```text
+Gemini
+→ 생성형 AI
+
+Kakao Local
+→ 실제 장소 데이터 검색
+```
+
+따라서 AI 생성 정보와 외부 데이터 검색을 결합한 구조입니다.
+
+---
+
+# 58. 평가용 상세 설명: 데이터 변환
+
+Kakao API에서 받은 데이터를 그대로 저장하지 않고 프로그램에서 필요한 필드만 추출합니다.
+
+원본:
+
+```json
+{
+  "place_name": "...",
+  "address_name": "...",
+  "road_address_name": "...",
+  "phone": "...",
+  "place_url": "..."
+}
+```
+
+최종:
+
+```json
+{
+  "name": "...",
+  "address": "...",
+  "url": "..."
+}
+```
+
+필요한 정보만 선택함으로써 최종 데이터 구조를 단순화합니다.
+
+---
+
+# 59. 평가용 상세 설명: 주소 우선순위
+
+현재 코드:
 
 ```python
-map_provider = NaverMapProvider(
-    client_id=naver_client_id,
-    client_secret=naver_client_secret
+d.get("road_address_name")
+or d.get("address_name")
+```
+
+즉:
+
+```text
+도로명 주소 존재
+      ↓
+사용
+
+도로명 주소 없음
+      ↓
+지번 주소 사용
+```
+
+이 구조는 주소 데이터가 일부 누락되어도 가능한 범위에서 주소를 제공하기 위한 방식입니다.
+
+---
+
+# 60. 평가용 상세 설명: 파일 저장
+
+결과 파일은 여행 날짜를 파일명에 포함합니다.
+
+```text
+report_2026-10-15.json
+report_2026-10-15.md
+```
+
+이렇게 하면 여러 날짜의 결과를 구분하기 쉽습니다.
+
+---
+
+# 61. 결과 재사용
+
+JSON 파일은 향후 다음 기능에서 재사용할 수 있습니다.
+
+```text
+JSON
+ ↓
+웹 페이지
+ ↓
+GUI
+ ↓
+통계
+ ↓
+추가 여행 일정 생성
+```
+
+Markdown은 다음 용도로 활용할 수 있습니다.
+
+```text
+Markdown
+ ↓
+문서
+ ↓
+GitHub
+ ↓
+PDF 변환
+ ↓
+여행 계획 공유
+```
+
+---
+
+# 62. 테스트 시나리오
+
+## 정상 날짜
+
+```bash
+python trip.py --date 2026-10-15
+```
+
+기대 결과:
+
+```text
+추천 도시 출력
+맛집 검색
+JSON 저장
+Markdown 저장
+```
+
+---
+
+## 잘못된 날짜 형식
+
+```bash
+python trip.py --date 2026/10/15
+```
+
+기대 결과:
+
+```text
+날짜 형식 오류
+```
+
+---
+
+## 날짜 누락
+
+```bash
+python trip.py
+```
+
+`--date`가 required이므로 argparse가 오류를 표시합니다.
+
+---
+
+## 검색 결과 없음
+
+Kakao API가 빈 `documents`를 반환하는 경우:
+
+```python
+docs = res.json().get("documents", [])
+```
+
+결과는:
+
+```text
+[]
+```
+
+가 됩니다.
+
+---
+
+# 63. API 오류 테스트
+
+향후 예외 처리 개선 후 다음 상황을 테스트할 수 있습니다.
+
+| 테스트 | 기대 결과 |
+|---|---|
+| 잘못된 Kakao Key | 오류 메시지 + 빈 결과 |
+| 인터넷 연결 해제 | 네트워크 오류 처리 |
+| 서버 응답 지연 | timeout 처리 |
+| 빈 검색 결과 | `[]` |
+| JSON 응답 오류 | JSON 오류 처리 |
+
+---
+
+# 64. LLM 테스트
+
+향후 JSON 검증을 추가하면 다음을 테스트할 수 있습니다.
+
+정상:
+
+```json
+{
+  "recommended_city": "부산",
+  "weather": "맑음",
+  "events": [],
+  "reason": "추천 이유"
+}
+```
+
+실패:
+
+```text
+부산을 추천합니다.
+```
+
+필수 키 누락:
+
+```json
+{
+  "recommended_city": "부산"
+}
+```
+
+타입 오류:
+
+```json
+{
+  "recommended_city": 123
+}
+```
+
+---
+
+# 65. 캐시 테스트 설계
+
+향후 캐싱을 추가하면:
+
+### 1회차
+
+```text
+날짜 입력
+↓
+Gemini 호출
+↓
+Kakao 호출
+↓
+결과 저장
+↓
+캐시 저장
+```
+
+### 2회차
+
+```text
+같은 날짜 입력
+↓
+캐시 확인
+↓
+캐시 있음
+↓
+기존 결과 사용
+```
+
+---
+
+# 66. 지명 정규화 테스트
+
+입력:
+
+```text
+부산
+```
+
+예상:
+
+```text
+부산광역시
+```
+
+입력:
+
+```text
+제주 여행
+```
+
+예상:
+
+```text
+제주
+```
+
+입력:
+
+```text
+서울 강남
+```
+
+예상:
+
+```text
+서울특별시 강남
+```
+
+---
+
+# 67. 보안 체크리스트
+
+- [ ] `.env`에 API Key 저장
+- [ ] `.env`를 GitHub에 올리지 않음
+- [ ] API Key를 코드에 직접 작성하지 않음
+- [ ] 공개된 Key는 폐기
+- [ ] 새 Key 발급
+- [ ] API 사용량 확인
+- [ ] API 제공자의 이용약관 확인
+
+---
+
+# 68. README 문서화 원칙
+
+이 README는 다음 네 가지를 분리하여 설명합니다.
+
+```text
+현재 구현
++
+실행 방법
++
+평가를 위한 기술 설명
++
+향후 개선 설계
+```
+
+특히 개선 설계는 현재 코드에 실제로 적용된 기능과 혼동하지 않도록 구분합니다.
+
+---
+
+# 69. 현재 구현의 핵심 코드
+
+## 환경 변수
+
+```python
+load_dotenv()
+
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+KAKAO_KEY = os.getenv("KAKAO_API_KEY")
+```
+
+## 모델
+
+```python
+MODEL_NAME = "gemini-flash-latest"
+genai.configure(api_key=GEMINI_KEY)
+```
+
+## Gemini
+
+```python
+model = genai.GenerativeModel(MODEL_NAME)
+
+response = model.generate_content(
+    prompt,
+    generation_config={
+        "response_mime_type": "application/json"
+    }
 )
 ```
 
-즉, 지도 API를 교체할 때 수정해야 하는 핵심 지점은 아래 한 줄이다.
+## Kakao
 
 ```python
-map_provider = KakaoMapProvider(api_key=kakao_api_key)
+res = requests.get(
+    url,
+    headers=headers,
+    params=params
+)
+
+res.raise_for_status()
 ```
 
-서비스 로직은 그대로 유지된다.
-
----
-
-## 서비스 로직에서의 사용 방식
-
-서비스 로직은 Kakao API를 직접 호출하지 않는다.  
-대신 `MapProvider` 인터페이스의 `search_restaurants()` 메서드를 호출한다.
+## JSON 저장
 
 ```python
-def collect_restaurants_for_cities(cities, map_provider):
-    results = []
-    errors = []
-
-    for item in cities:
-        city = item.get("city", "")
-        reason = item.get("reason", "")
-
-        try:
-            restaurants = map_provider.search_restaurants(city)
-
-        except Exception as e:
-            restaurants = []
-            errors.append({
-                "step": "map_restaurant_search",
-                "provider": map_provider.__class__.__name__,
-                "city": city,
-                "message": str(e)
-            })
-
-        results.append({
-            "city": city,
-            "reason": reason,
-            "restaurants": restaurants
-        })
-
-    return results, errors
+json.dump(
+    report,
+    f,
+    ensure_ascii=False,
+    indent=2
+)
 ```
 
-이 구조에서는 지도 API 호출이 실패해도 전체 프로그램이 중단되지 않는다.
-
-실패한 도시는 다음처럼 빈 맛집 목록으로 처리된다.
+## Markdown 저장
 
 ```python
-restaurants = []
-```
-
-그리고 오류는 `errors` 리스트에 누적된다.
-
-```python
-errors.append({
-    "step": "map_restaurant_search",
-    "provider": "KakaoMapProvider",
-    "city": "부산",
-    "message": "401 Client Error: Unauthorized"
-})
+f.write(md)
 ```
 
 ---
 
-## Provider별 역할
+# 70. 현재 코드의 한계
 
-| Provider | 역할 | 상태 |
-|---|---|---|
-| `MapProvider` | 지도 API 공통 인터페이스 | 구현 완료 |
-| `KakaoMapProvider` | Kakao Local API 호출 | 구현 완료 |
-| `GoogleMapProvider` | Google Maps API 교체용 구현체 | 확장 예정 |
-| `NaverMapProvider` | Naver Maps API 교체용 구현체 | 확장 예정 |
+현재 프로그램은 핵심 기능을 간결하게 구현한 버전입니다.
 
----
+다음 부분은 추가적인 보완이 필요합니다.
 
-## 함수별 입력/출력
+## 70.1 API 오류 처리
 
-### `MapProvider.search_restaurants(city)`
+현재 `raise_for_status()`에서 발생한 예외를 별도로 처리하지 않습니다.
 
-| 구분 | 이름 | 타입 | 예시 | 설명 |
-|---|---|---|---|---|
-| 입력 | `city` | `str` | `"부산"` | 맛집을 검색할 도시 |
-| 출력 | `restaurants` | `list[dict]` | `[{"place_name": "맛집명"}]` | 맛집 검색 결과 |
+## 70.2 timeout
 
----
+현재 Kakao 요청에 `timeout`이 지정되어 있지 않습니다.
 
-### `KakaoMapProvider.__init__(api_key)`
+## 70.3 Gemini 오류 처리
 
-| 구분 | 이름 | 타입 | 예시 | 설명 |
-|---|---|---|---|---|
-| 입력 | `api_key` | `str` | `"abc123"` | Kakao REST API 키 |
-| 출력 | 없음 | `None` | - | Provider 객체 초기화 |
+Gemini 호출 실패 또는 JSON 파싱 실패에 대한 별도 처리 로직이 없습니다.
 
----
+## 70.4 캐싱
 
-### `KakaoMapProvider.search_restaurants(city)`
+같은 날짜를 다시 실행하면 API를 다시 호출합니다.
 
-| 구분 | 이름 | 타입 | 예시 | 설명 |
-|---|---|---|---|---|
-| 입력 | `city` | `str` | `"제주"` | 맛집 검색 대상 도시 |
-| 출력 | `restaurants` | `list[dict]` | `[{"place_name": "제주 맛집"}]` | 정규화된 맛집 목록 |
+## 70.5 지명 정규화
 
-반환 예시는 다음과 같다.
+AI가 반환한 도시명을 그대로 Kakao 검색어에 사용합니다.
 
-```python
-[
-    {
-        "place_name": "해운대암소갈비집",
-        "address_name": "부산 해운대구 중동",
-        "road_address_name": "부산 해운대구 중동2로10번길 32-10",
-        "phone": "051-746-0033",
-        "place_url": "https://place.map.kakao.com/123456"
-    }
-]
-```
+## 70.6 Provider 추상화
+
+Kakao API 호출이 `search_restaurants()` 함수 안에 직접 구현되어 있습니다.
 
 ---
 
-## 응답 유효성 검사
+# 71. 향후 개선 로드맵
 
-Kakao API 응답은 반드시 아래 조건을 만족해야 한다.
-
-| 검사 항목 | 조건 |
-|---|---|
-| 전체 응답 타입 | `dict` |
-| 필수 키 | `documents` |
-| `documents` 타입 | `list` |
-| 각 맛집 항목 타입 | `dict` |
-| `place_name` 타입 | `str` |
-| `address_name` 타입 | `str` |
-| `road_address_name` 타입 | `str` |
-| `phone` 타입 | `str` |
-| `place_url` 타입 | `str` |
-
-응답이 조건을 만족하지 않으면 `ValueError`를 발생시킨다.
-
-서비스 로직에서는 해당 예외를 잡아 빈 결과로 처리한다.
-
-```python
-try:
-    restaurants = map_provider.search_restaurants(city)
-
-except Exception as e:
-    restaurants = []
-```
-
----
-
-## 장애 처리 정책
-
-지도 API 호출 실패 시 전체 프로그램은 중단되지 않는다.
-
-| 상황 | 처리 방식 |
-|---|---|
-| 네트워크 오류 | 예외 포착 후 빈 목록 처리 |
-| API 키 오류 | 예외 포착 후 빈 목록 처리 |
-| HTTP 오류 | `raise_for_status()`로 감지 후 빈 목록 처리 |
-| JSON 파싱 실패 | 예외 포착 후 빈 목록 처리 |
-| 응답 필수 키 누락 | `ValueError` 발생 후 빈 목록 처리 |
-| 응답 타입 불일치 | `ValueError` 발생 후 빈 목록 처리 |
-| 검색 결과 없음 | 빈 리스트 반환 |
-
-실패한 경우 리포트에는 다음과 같이 표시된다.
-
-```markdown
-### 🍽️ 추천 맛집
-
-> 데이터 없음
-```
-
----
-
-## 최종 구조
+## 1단계: 안정성
 
 ```text
-main.py
- ├─ 여행 날짜 입력
- ├─ 추천 도시 생성
- ├─ map_provider = KakaoMapProvider(api_key)
- ├─ collect_restaurants_for_cities(cities, map_provider)
- │      └─ map_provider.search_restaurants(city)
- │             └─ KakaoMapProvider.search_restaurants(city)
- ├─ 실패 시 restaurants = []
- ├─ 오류는 errors 리스트에 누적
- └─ Markdown 리포트 생성
+timeout
++
+try-except
++
+상세 오류 메시지
+```
+
+## 2단계: LLM 안정성
+
+```text
+JSON 검증
++
+필수 키 검증
++
+1회 재요청
+```
+
+## 3단계: 검색 품질
+
+```text
+도시명 정규화
++
+검색어 보정
+```
+
+## 4단계: 성능
+
+```text
+날짜별 캐싱
+```
+
+## 5단계: 구조 개선
+
+```text
+MapProvider
++
+KakaoMapProvider
+```
+
+## 6단계: 기능 확장
+
+```text
+관광지
++
+숙박
++
+교통
++
+날씨
++
+여행 일정
 ```
 
 ---
 
-## 보완 결과
+# 72. 향후 확장 기능
 
-이번 보완으로 다음 사항을 만족한다.
+### 사용자 취향
 
-| 항목 | 보완 내용 |
-|---|---|
-| 지도 API 추상화 | `MapProvider` 인터페이스 추가 |
-| Kakao 의존성 분리 | `KakaoMapProvider` 구현체로 분리 |
-| 교체 지점 명시 | Provider 생성부 한 곳에서 교체 |
-| 확장 가능성 | Google Maps
-
-
-# 평가 항목 #3 보완 기록: 지도 API 예외 처리 및 오류 리포트 반영
-
-## 평가 결과
-
-| 구분 | 내용 |
-|---|---|
-| 결과 | FAIL |
-| 평가 항목 | #3 |
-| 근거 | `trip.py > res = requests.get(url, headers=headers, params=params)` |
-| 잘한 점 | 추천 도시를 받아 Kakao API를 호출하도록 구현됨 |
-| 부족한 점 | 지도 API 실패 시 중단하지 않고 “데이터 없음”으로 처리하는 예외 처리가 없음 |
-| 보완 | API 호출 실패 시 예외를 잡아 결과를 빈 목록 또는 “데이터 없음” 태그로 처리하는 흐름 추가 |
-
----
-
-## 문제점
-
-기존 코드는 Kakao API 호출부에서 예외 처리가 부족했다.
-
-```python
-res = requests.get(url, headers=headers, params=params)
+```text
+바다
+산
+문화
+맛집
+카페
+역사
 ```
 
-이 경우 다음 상황에서 프로그램이 중단될 수 있다.
+### 예산
 
-| 문제 상황 | 설명 |
-|---|---|
-| 네트워크 오류 | 인터넷 연결 실패 시 프로그램 중단 가능 |
-| API 키 오류 | 잘못된 Kakao API 키 사용 시 오류 발생 |
-| HTTP 오류 | 401, 403, 500 등의 응답 처리 부족 |
-| JSON 파싱 오류 | 응답이 JSON 형식이 아닐 경우 중단 가능 |
-| 응답 구조 오류 | `documents` 키가 없을 경우 오류 발생 |
-| 오류 기록 없음 | 어떤 단계에서 실패했는지 저장되지 않음 |
-| 리포트 반영 없음 | 실패 사실이 Markdown/JSON 결과에 남지 않음 |
+```text
+10만원
+20만원
+30만원
+```
+
+### 여행 기간
+
+```text
+당일
+1박 2일
+2박 3일
+```
+
+### 여행 인원
+
+```text
+혼자
+커플
+가족
+친구
+```
+
+이런 입력을 추가하면 더 개인화된 여행 추천이 가능합니다.
 
 ---
 
-## 보완 목표
+# 73. 관광지 API 연동
 
-지도 API 호출 실패 시에도 전체 여행 추천 리포트 생성이 중단되지 않도록 한다.
+향후 Kakao Local API를 이용해 맛집뿐 아니라 관광지까지 검색할 수 있습니다.
 
-보완 목표는 다음과 같다.
+```text
+추천 도시
+  ↓
+관광지 검색
+  ↓
+맛집 검색
+  ↓
+카페 검색
+```
 
-1. API 호출 실패 시 `try-except`로 예외를 잡는다.
-2. 실패한 도시의 맛집 결과는 빈 리스트 `[]`로 처리한다.
-3. Markdown 리포트에는 `데이터 없음`으로 표시한다.
-4. 발생한 예외는 `errors` 리스트에 누적한다.
-5. 최종 JSON 저장 데이터에 `errors` 필드를 포함한다.
-6. Markdown 리포트 하단에 오류 기록 섹션을 추가한다.
+최종적으로:
+
+```text
+오전 → 관광지
+점심 → 맛집
+오후 → 관광지
+저녁 → 맛집
+```
+
+형태의 여행 코스를 만들 수 있습니다.
 
 ---
 
-## 보완 코드
+# 74. 숙박 정보 확장
 
-아래 코드는 지도 API 실패 시 프로그램을 중단하지 않고, 오류를 `errors` 리스트에 누적한 뒤 최종 JSON과 Markdown 리포트에 반영하는 예시이다.
+향후 숙박 API를 연동하면:
 
-```python
-import json
-import requests
+```text
+도시
+ ↓
+관광지
+ ↓
+맛집
+ ↓
+숙박
+```
 
+을 하나의 여행 데이터로 묶을 수 있습니다.
 
-def add_error(errors, step, message, city="-", provider="-", attempt="-"):
-    """
-    발생한 예외 정보를 errors 리스트에 누적한다.
+---
 
-    Args:
-        errors (list): 오류 정보를 저장할 리스트
-        step (str): 오류가 발생한 처리 단계
-        message (Exception | str): 오류 메시지
-        city (str): 오류가 발생한 도시
-        provider (str): 사용한 API Provider 이름
-        attempt (int | str): 재시도 횟수
-    """
+# 75. 날씨 API 확장
 
-    errors.append({
-        "step": step,
-        "city": city,
-        "provider": provider,
-        "attempt": attempt,
-        "message": str(message)
-    })
+현재 `weather`는 Gemini가 생성한 정보입니다.
 
+향후 실제 날씨 API를 연결하면:
 
-def search_restaurants(city, kakao_api_key):
-    """
-    Kakao Local API를 호출하여 특정 도시의 맛집을 검색한다.
+```text
+Gemini
+→ 여행지 추천
 
-    정상 응답 시:
-        맛집 목록을 반환한다.
+날씨 API
+→ 실제 예보
 
-    실패 시:
-        예외를 발생시키고, 호출부에서 이를 잡아 빈 목록으로 처리한다.
-    """
+Kakao
+→ 장소 정보
+```
 
-    url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+처럼 역할을 분리할 수 있습니다.
 
-    headers = {
-        "Authorization": f"KakaoAK {kakao_api_key}"
-    }
+이 경우 AI가 생성한 예상 정보와 외부 데이터 기반 실제 예보를 구분할 수 있습니다.
 
-    params = {
-        "query": f"{city} 맛집",
-        "size": 5
-    }
+---
 
-    response = requests.get(
-        url,
-        headers=headers,
-        params=params,
-        timeout=5
-    )
+# 76. 데이터 신뢰성 개선
 
-    response.raise_for_status()
+현재:
 
-    data = response.json()
+```text
+Gemini
+→ 날씨 / 행사 / 추천 이유
+```
 
-    if "documents" not in data:
-        raise ValueError("Kakao API 응답에 'documents' 키가 없습니다.")
+향후:
 
-    if not isinstance(data["documents"], list):
-        raise ValueError("Kakao API 응답의 'documents'는 list 타입이어야 합니다.")
+```text
+공식 날씨 API
+→ 날씨
 
-    return data["documents"]
+공식 행사 데이터
+→ 행사
 
+Gemini
+→ 추천 이유
+```
 
-def collect_restaurants_for_cities(cities, kakao_api_key, errors):
-    """
-    추천 도시 목록을 순회하며 Kakao API로 맛집을 검색한다.
+와 같이 데이터 출처별 역할을 분리할 수 있습니다.
 
-    API 호출 실패 시:
-    - restaurants는 빈 리스트로 처리
-    - 오류 정보는 errors 리스트에 누적
-    - 전체 리포트 생성 흐름은 계속 진행
-    """
+---
 
-    results = []
+# 77. 웹 서비스 확장
 
-    for item in cities:
-        city = item.get("city", "")
-        reason = item.get("reason", "")
+현재:
 
-        try:
-            restaurants = search_restaurants(city, kakao_api_key)
+```text
+CLI
+```
 
-        except Exception as e:
-            restaurants = []
+향후:
 
-            add_error(
-                errors=errors,
-                step="kakao_restaurant_search",
-                city=city,
-                provider="Kakao",
-                message=e
-            )
+```text
+웹 브라우저
+   ↓
+여행 날짜 입력
+   ↓
+Python Backend
+   ↓
+Gemini + Kakao
+   ↓
+여행 리포트
+```
 
-        results.append({
-            "city": city,
-            "reason": reason,
-            "restaurants": restaurants
-        })
+로 확장할 수 있습니다.
 
-    return results
+---
 
+# 78. GUI 확장
 
-def make_restaurant_section(restaurants):
-    """
-    맛집 목록을 Markdown 문자열로 변환한다.
-    맛집 데이터가 없으면 '데이터 없음'을 표시한다.
-    """
+Tkinter, PySide 또는 웹 UI 등을 사용하여 날짜 선택 화면을 만들 수 있습니다.
 
-    if not restaurants:
-        return "### 🍽️ 추천 맛집\n\n> 데이터 없음\n"
+예:
 
-    markdown = "### 🍽️ 추천 맛집\n\n"
-    markdown += "| 이름 | 주소 | 전화번호 | 링크 |\n"
-    markdown += "|---|---|---|---|\n"
-
-    for restaurant in restaurants:
-        name = restaurant.get("place_name", "이름 없음")
-        address = (
-            restaurant.get("road_address_name")
-            or restaurant.get("address_name")
-            or "주소 없음"
-        )
-        phone = restaurant.get("phone", "-")
-        url = restaurant.get("place_url", "")
-
-        link = f"[보기]({url})" if url else "-"
-
-        markdown += f"| {name} | {address} | {phone} | {link} |\n"
-
-    return markdown
-
-
-def make_error_section(errors):
-    """
-    errors 리스트를 Markdown 표로 변환한다.
-    오류가 없으면 빈 문자열을 반환한다.
-    """
-
-    if not errors:
-        return ""
-
-    markdown = "\n## ⚠️ 오류 기록\n\n"
-    markdown += "| 단계 | 도시 | Provider | 시도 | 오류 메시지 |\n"
-    markdown += "|---|---|---|---|---|\n"
-
-    for error in errors:
-        step = error.get("step", "-")
-        city = error.get("city", "-")
-        provider = error.get("provider", "-")
-        attempt = error.get("attempt", "-")
-        message = error.get("message", "-")
-
-        markdown += f"| {step} | {city} | {provider} | {attempt} | {message} |\n"
-
-    return markdown
-
-
-def make_markdown_report(trip_data):
-    """
-    여행 추천 결과를 Markdown 리포트로 변환한다.
-    오류가 있을 경우 리포트 하단에 오류 기록을 포함한다.
-    """
-
-    markdown = "# 🧳 AI 여행 추천 리포트\n\n"
-    markdown += f"여행 날짜: {trip_data.get('date', '-')}\n\n"
-
-    cities = trip_data.get("cities", [])
-
-    if not cities:
-        markdown += "> 추천 도시 데이터 없음\n\n"
-
-    for item in cities:
-        city = item.get("city", "도시 없음")
-        reason = item.get("reason", "추천 이유 없음")
-        restaurants = item.get("restaurants", [])
-
-        markdown += f"## 📍 {city}\n\n"
-        markdown += f"**추천 이유:** {reason}\n\n"
-        markdown += make_restaurant_section(restaurants)
-        markdown += "\n"
-
-    errors = trip_data.get("errors", [])
-    markdown += make_error_section(errors)
-
-    return markdown
-
-
-def build_trip_data(date_str, city_results, errors):
-    """
-    최종 저장용 여행 데이터를 생성한다.
-    API 오류 기록을 errors 필드에 포함한다.
-    """
-
-    return {
-        "date": date_str,
-        "cities": city_results,
-        "errors": errors
-    }
-
-
-def save_json(data, file_path):
-    """
-    여행 추천 결과를 JSON 파일로 저장한다.
-    """
-
-    with open(file_path, "w", encoding="utf-8") as file:
-        json.dump(data, file, ensure_ascii=False, indent=2)
-
-
-def save_markdown(markdown, file_path):
-    """
-    여행 추천 결과를 Markdown 파일로 저장한다.
-    """
-
-    with open(file_path, "w", encoding="utf-8") as file:
-        file.write(markdown)
-
-
-def main():
-    errors = []
-
-    date_str = "2025-12-25"
-    kakao_api_key = "YOUR_KAKAO_API_KEY"
-
-    cities = [
-        {
-            "city": "부산",
-            "reason": "겨울 바다와 야경을 즐기기 좋음"
-        },
-        {
-            "city": "제주",
-            "reason": "자연 경관과 휴식을 즐기기 좋음"
-        }
-    ]
-
-    city_results = collect_restaurants_for_cities(
-        cities=cities,
-        kakao_api_key=kakao_api_key,
-        errors=errors
-    )
-
-    trip_data = build_trip_data(
-        date_str=date_str,
-        city_results=city_results,
-        errors=errors
-    )
-
-    markdown = make_markdown_report(trip_data)
-
-    save_json(trip_data, "trip_result.json")
-    save_markdown(markdown, "trip_report.md")
-
-
-if __name__ == "__main__":
-    main()
+```text
+┌────────────────────────────┐
+│      AI 여행 추천           │
+├────────────────────────────┤
+│ 여행 날짜: [2026-10-15]    │
+│                            │
+│       [ 여행 추천 ]         │
+└────────────────────────────┘
+```
+
+결과:
+
+```text
+추천 도시: 부산
+
+예상 날씨:
+맑음
+
+추천 이유:
+가을 바다 여행에 적합
+
+추천 맛집:
+1. ...
+2. ...
+3. ...
 ```
 
 ---
 
-## 오류 데이터 구조
+# 79. 프로젝트 교육적 의미
 
-오류 정보는 다음 형식으로 저장된다.
+본 프로젝트를 통해 다음 내용을 실습할 수 있습니다.
+
+## Python
+
+- 함수
+- 자료형
+- 예외 처리
+- 파일 입출력
+- 표준 라이브러리
+
+## API
+
+- API Key
+- HTTP
+- GET
+- Query Parameter
+- Header
+- JSON Response
+
+## AI
+
+- LLM 호출
+- Prompt 작성
+- Structured JSON 응답
+
+## 데이터
+
+- JSON
+- 리스트
+- 딕셔너리
+- 데이터 변환
+
+## 문서
+
+- Markdown 자동 생성
+
+---
+
+# 80. 소프트웨어 설계 관점
+
+현재 구조는 작은 CLI 프로그램에 적합한 단순 구조입니다.
+
+```text
+main
+ ├── recommend_city
+ ├── search_restaurants
+ ├── save_report
+ └── save_markdown
+```
+
+기능이 증가하면 다음과 같이 계층화할 수 있습니다.
+
+```text
+CLI Layer
+    ↓
+Service Layer
+    ↓
+AI Provider / Map Provider
+    ↓
+External API
+```
+
+---
+
+# 81. 오류 처리 설계의 중요성
+
+외부 API는 프로그램 내부 함수와 다릅니다.
+
+프로그램 내부:
+
+```text
+함수 호출
+↓
+정상적인 입력
+↓
+정상적인 반환
+```
+
+외부 API:
+
+```text
+네트워크
+↓
+인증
+↓
+서버 상태
+↓
+사용량 제한
+↓
+응답 형식
+```
+
+여러 요소에 의해 실패할 수 있습니다.
+
+따라서 외부 API를 사용하는 프로그램은 오류 처리 설계가 중요합니다.
+
+---
+
+# 82. 실패를 데이터로 처리하는 설계
+
+향후에는 오류를 프로그램 종료 조건으로만 보지 않고 데이터로 저장할 수 있습니다.
 
 ```json
 {
   "step": "kakao_restaurant_search",
   "city": "부산",
-  "provider": "Kakao",
-  "attempt": "-",
-  "message": "401 Client Error: Unauthorized"
+  "message": "Timeout"
 }
 ```
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `step` | `str` | 오류가 발생한 단계 |
-| `city` | `str` | 오류가 발생한 도시 |
-| `provider` | `str` | 사용한 API Provider |
-| `attempt` | `str` 또는 `int` | 재시도 횟수 |
-| `message` | `str` | 오류 메시지 |
+그러면 최종 결과가:
+
+```text
+성공 결과
++
+실패 정보
+```
+
+를 동시에 가지게 됩니다.
 
 ---
 
-## JSON 저장 예시
+# 83. LLM 실패를 데이터로 처리하는 설계
 
-최종 저장 데이터에는 추천 결과뿐 아니라 오류 정보도 함께 포함된다.
+예:
 
 ```json
 {
-  "date": "2025-12-25",
-  "cities": [
-    {
-      "city": "부산",
-      "reason": "겨울 바다와 야경을 즐기기 좋음",
-      "restaurants": []
-    }
-  ],
+  "date": "2026-10-15",
+  "cities": [],
   "errors": [
     {
-      "step": "kakao_restaurant_search",
-      "city": "부산",
-      "provider": "Kakao",
-      "attempt": "-",
-      "message": "401 Client Error: Unauthorized"
+      "step": "llm_json_parse",
+      "message": "JSONDecodeError"
     }
   ]
 }
 ```
 
+이 구조는 디버깅과 운영에 유리합니다.
+
 ---
 
-## Markdown 리포트 출력 예시
+# 84. 재현성
 
-Kakao API 호출에 실패하면 맛집 정보는 다음과 같이 표시된다.
+AI는 같은 질문에도 결과가 달라질 수 있습니다.
 
-```markdown
-### 🍽️ 추천 맛집
+따라서 향후에는 다음을 저장할 수 있습니다.
 
-> 데이터 없음
+```text
+입력 날짜
++
+프롬프트
++
+LLM 원본 응답
++
+파싱 결과
++
+최종 결과
 ```
 
-오류가 발생한 경우 리포트 하단에 다음 섹션이 추가된다.
+이렇게 하면 어떤 입력과 응답을 통해 결과가 만들어졌는지 추적할 수 있습니다.
 
-```markdown
-## ⚠️ 오류 기록
+---
 
-| 단계 | 도시 | Provider | 시도 | 오류 메시지 |
-|---|---|---|---|---|
-| kakao_restaurant_search | 부산 | Kakao | - | 401 Client Error: Unauthorized |
+# 85. 원본 LLM 응답 저장 설계
+
+향후:
+
+```text
+results/
+└── raw/
+    └── raw_llm_response_20261015.json
 ```
 
----
-
-## 보완 후 동작 방식
-
-| 상황 | 처리 방식 |
-|---|---|
-| Kakao API 정상 응답 | 맛집 목록을 리포트에 표시 |
-| Kakao API 호출 실패 | 해당 도시의 맛집 목록을 빈 리스트 `[]`로 처리 |
-| 맛집 목록 없음 | Markdown에 `데이터 없음` 표시 |
-| 예외 발생 | `errors` 리스트에 오류 정보 누적 |
-| Markdown 생성 | 하단에 `⚠️ 오류 기록` 섹션 추가 |
-| JSON 저장 | 최종 데이터에 `errors` 필드 포함 |
-| 전체 프로그램 | API 실패와 관계없이 계속 실행 |
-
----
-
-## 보완 결과
-
-이번 보완으로 평가 항목 #3의 부족한 점을 해결하였다.
-
-| 요구사항 | 반영 여부 |
-|---|---|
-| API 호출 실패 시 예외 처리 | 반영 |
-| 실패 시 프로그램 중단 방지 | 반영 |
-| 실패 결과를 빈 목록으로 처리 | 반영 |
-| Markdown에 `데이터 없음` 표시 | 반영 |
-| 발생 예외를 `errors` 리스트에 누적 | 반영 |
-| Markdown 리포트에 오류 기록 포함 | 반영 |
-| JSON 저장 데이터에 `errors` 필드 포함 | 반영 |
-
-따라서 지도 API 호출 실패 시에도 여행 추천 리포트는 정상적으로 생성되며, 실패한 API 호출 내역은 최종 결과물에 기록된다.
-
-
-# 평가 항목 보완 기록: 원본 LLM 응답 별도 보존
-
-## 평가 결과
-
-| 구분 | 내용 |
-|---|---|
-| 결과 | FAIL |
-| 부족한 점 | 원본 LLM 응답, 즉 파싱 전 `LLM raw JSON`을 별도 파일로 저장하지 않음 |
-| 보완 | 원본 LLM 응답을 파싱하기 전에 별도 파일로 저장하는 정책을 추가 |
-
----
-
-## 문제점
-
-기존 흐름에서는 LLM이 반환한 응답을 바로 JSON으로 파싱하여 사용했다.
-
-```python
-parsed_data = json.loads(llm_response)
-```
-
-이 방식은 다음 문제가 있다.
-
-| 문제 | 설명 |
-|---|---|
-| 원본 응답 유실 | 파싱 전 LLM이 실제로 어떤 응답을 반환했는지 확인하기 어려움 |
-| 디버깅 어려움 | JSON 파싱 실패 시 원인을 추적하기 어려움 |
-| 재현성 부족 | 나중에 같은 응답을 다시 검토하거나 테스트하기 어려움 |
-| 감사 기록 부족 | 최종 결과가 어떤 원본 응답에서 만들어졌는지 추적하기 어려움 |
-
-따라서 LLM 응답은 반드시 **파싱하기 전에 원본 그대로 별도 파일로 저장**해야 한다.
-
----
-
-## 보완 목표
-
-LLM 응답 처리 흐름을 다음과 같이 변경한다.
-
-1. LLM에게 여행 추천을 요청한다.
-2. LLM이 반환한 원본 응답을 `raw_response`로 받는다.
-3. `json.loads()`로 파싱하기 전에 원본 응답을 별도 파일로 저장한다.
-4. 저장된 원본 응답 파일 경로를 최종 JSON 결과에 기록한다.
-5. JSON 파싱에 실패하더라도 원본 응답은 보존한다.
-
----
-
-## 원본 LLM 응답 보존 정책
-
-| 항목 | 정책 |
-|---|---|
-| 저장 시점 | LLM 응답을 받은 직후, JSON 파싱 전에 저장 |
-| 저장 대상 | 파싱 전 원본 문자열 전체 |
-| 저장 위치 | `outputs/raw/` 디렉터리 |
-| 파일명 | `raw_llm_response_날짜시간.json` |
-| 저장 방식 | 원본 내용을 수정하지 않고 그대로 저장 |
-| 최종 결과 연동 | 최종 JSON에 `raw_llm_response_path` 필드로 경로 기록 |
-
----
-
-## 보완 코드
-
-아래 코드는 LLM 원본 응답을 파싱하기 전에 별도 파일로 저장하는 예시이다.
-
-```python
-import json
-from pathlib import Path
-from datetime import datetime
-
-
-def save_raw_llm_response(raw_response, output_dir="outputs/raw"):
-    """
-    LLM이 반환한 원본 응답을 파싱하기 전에 별도 파일로 저장한다.
-
-    Args:
-        raw_response (str): LLM이 반환한 원본 응답 문자열
-        output_dir (str): 원본 응답 저장 디렉터리
-
-    Returns:
-        str: 저장된 원본 응답 파일 경로
-    """
-
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_path = Path(output_dir) / f"raw_llm_response_{timestamp}.json"
-
-    with open(file_path, "w", encoding="utf-8") as file:
-        file.write(raw_response)
-
-    return str(file_path)
-
-
-def parse_llm_json(raw_response):
-    """
-    LLM 원본 응답을 JSON으로 파싱한다.
-
-    Args:
-        raw_response (str): LLM이 반환한 원본 응답 문자열
-
-    Returns:
-        dict: 파싱된 JSON 데이터
-
-    Raises:
-        ValueError: JSON 파싱 실패 시 발생
-    """
-
-    try:
-        return json.loads(raw_response)
-
-    except json.JSONDecodeError as e:
-        raise ValueError(f"LLM 응답 JSON 파싱 실패: {e}")
-
-
-def add_error(errors, step, message, city="-", provider="-", attempt="-"):
-    """
-    발생한 예외 정보를 errors 리스트에 누적한다.
-    """
-
-    errors.append({
-        "step": step,
-        "city": city,
-        "provider": provider,
-        "attempt": attempt,
-        "message": str(message)
-    })
-
-
-def build_trip_data(date_str, cities, errors, raw_llm_response_path):
-    """
-    최종 저장용 여행 데이터를 생성한다.
-    원본 LLM 응답 파일 경로를 함께 포함한다.
-    """
-
-    return {
-        "date": date_str,
-        "cities": cities,
-        "errors": errors,
-        "raw_llm_response_path": raw_llm_response_path
-    }
-```
-
----
-
-## 적용 흐름 예시
-
-중요한 점은 **LLM 응답을 먼저 저장하고, 그다음에 JSON 파싱을 수행**하는 것이다.
-
-```python
-def main():
-    errors = []
-
-    date_str = "2025-12-25"
-
-    # 1. LLM 호출 결과를 원본 문자열로 받음
-    raw_llm_response = call_llm_for_trip_recommendation(date_str)
-
-    # 2. 파싱 전에 원본 LLM 응답을 별도 파일로 저장
-    raw_llm_response_path = save_raw_llm_response(raw_llm_response)
-
-    # 3. 원본 저장 후 JSON 파싱 시도
-    try:
-        parsed_data = parse_llm_json(raw_llm_response)
-
-    except Exception as e:
-        add_error(
-            errors=errors,
-            step="llm_json_parse",
-            provider="LLM",
-            message=e
-        )
-
-        parsed_data = {
-            "cities": []
-        }
-
-    # 4. 최종 데이터에 원본 응답 파일 경로 포함
-    trip_data = build_trip_data(
-        date_str=date_str,
-        cities=parsed_data.get("cities", []),
-        errors=errors,
-        raw_llm_response_path=raw_llm_response_path
-    )
-
-    # 5. 최종 JSON 저장
-    with open("trip_result.json", "w", encoding="utf-8") as file:
-        json.dump(trip_data, file, ensure_ascii=False, indent=2)
-```
-
----
-
-## 기존 코드와 개선 코드 비교
-
-### 기존 코드
-
-```python
-raw_llm_response = call_llm_for_trip_recommendation(date_str)
-parsed_data = json.loads(raw_llm_response)
-```
-
-기존 코드는 LLM 응답을 바로 파싱하므로, 파싱 실패 시 원본 응답을 확인하기 어렵다.
-
----
-
-### 개선 코드
-
-```python
-raw_llm_response = call_llm_for_trip_recommendation(date_str)
-
-raw_llm_response_path = save_raw_llm_response(raw_llm_response)
-
-parsed_data = parse_llm_json(raw_llm_response)
-```
-
-개선 후에는 LLM 응답이 먼저 별도 파일로 저장되므로, 파싱 실패가 발생해도 원본 응답을 확인할 수 있다.
-
----
-
-## 최종 JSON 저장 예시
-
-최종 결과 JSON에는 원본 LLM 응답 파일 경로가 포함된다.
+예:
 
 ```json
 {
-  "date": "2025-12-25",
-  "cities": [
-    {
-      "city": "부산",
-      "reason": "겨울 바다와 야경을 즐기기 좋음",
-      "restaurants": []
-    }
-  ],
-  "errors": [],
-  "raw_llm_response_path": "outputs/raw/raw_llm_response_20251225_153000.json"
+  "raw_response": "{ ... }"
 }
 ```
 
----
+또는 텍스트 파일로 저장할 수 있습니다.
 
-## 원본 LLM 응답 파일 예시
-
-`outputs/raw/raw_llm_response_20251225_153000.json`
-
-```json
-{
-  "cities": [
-    {
-      "city": "부산",
-      "reason": "겨울 바다와 야경을 즐기기 좋음"
-    },
-    {
-      "city": "제주",
-      "reason": "자연 경관과 휴식을 즐기기 좋음"
-    }
-  ]
-}
-```
+이 기능은 JSON 파싱 오류가 발생했을 때 원인을 분석하는 데 도움이 됩니다.
 
 ---
 
-## 보완 후 동작 방식
+# 86. LLM 응답 검증 설계
 
-| 상황 | 처리 방식 |
-|---|---|
-| LLM 응답 정상 | 원본 응답 저장 후 JSON 파싱 |
-| LLM 응답 파싱 실패 | 원본 응답은 이미 저장되어 있으므로 추후 확인 가능 |
-| 최종 JSON 생성 | `raw_llm_response_path`에 원본 파일 경로 기록 |
-| 디버깅 필요 | 저장된 raw 파일을 열어 실제 LLM 응답 확인 |
-| 재현성 확인 | 원본 응답 파일을 기준으로 동일한 파싱 로직 재검증 가능 |
-
----
-
-## 보완 결과
-
-이번 보완으로 다음 요구사항을 만족한다.
-
-| 요구사항 | 반영 여부 |
-|---|---|
-| 원본 LLM 응답 별도 저장 | 반영 |
-| JSON 파싱 전 raw 응답 보존 | 반영 |
-| 파싱 실패 시에도 원본 응답 확인 가능 | 반영 |
-| 최종 JSON에 원본 응답 파일 경로 포함 | 반영 |
-| 디버깅 및 재현성 향상 | 반영 |
-
-따라서 LLM 응답이 잘못된 JSON 형식이거나 예상과 다른 구조로 반환되더라도, 원본 응답을 별도 파일에서 확인할 수 있도록 보완하였다.
-
-
-# 평가 항목 #3 추가 보완 기록: LLM 재요청·캐싱·지명 정규화
-
-## 평가 결과
-
-| 구분 | 내용 |
-|---|---|
-| 결과 | FAIL |
-| 평가 항목 | #3 |
-| 근거 | `trip.py > res = requests.get(url, headers=headers, params=params)` |
-| 잘한 점 | 추천 도시를 받아 Kakao API를 호출하도록 구현됨 |
-| 부족한 점 1 | LLM 불완전 JSON에 대한 재요청 1회 및 프롬프트 보정 정책이 구현되어 있지 않음 |
-| 부족한 점 2 | 같은 날짜 요청에 대한 결과 재사용, 즉 캐싱 제안이나 구현이 없음 |
-| 부족한 점 3 | 지명 세분화, 키워드 보정, 중앙명사 추출 같은 정규화 로직이 없음 |
-| 보완 1 | 파싱 실패 시 1회 재요청하고, 재요청 시 JSON 전용 보정 프롬프트를 사용 |
-| 보완 2 | 동일 날짜 요청에 대해 저장된 결과를 재사용하는 캐시 로직 추가 |
-| 보완 3 | 도시명 정규화 규칙과 보정 절차를 추가하여 지도 API 검색 품질 개선 |
-
----
-
-## 1. 보완 목표
-
-이번 보완의 목표는 다음과 같다.
-
-1. LLM 응답이 불완전 JSON일 경우 바로 실패하지 않고 1회 재요청한다.
-2. 재요청 시에는 더 엄격한 JSON 전용 프롬프트를 사용한다.
-3. 같은 날짜로 이미 생성된 여행 결과가 있으면 LLM과 지도 API를 다시 호출하지 않고 캐시 결과를 재사용한다.
-4. 도시명 또는 지명이 모호하거나 불완전할 경우 정규화 후 지도 API 검색어를 만든다.
-5. 정규화 과정에서 동음이의어, 행정구역, 불필요한 키워드, 중심 지명 추출을 처리한다.
-
----
-
-# 2. LLM 불완전 JSON 재요청 및 프롬프트 보정 정책
-
-## 문제점
-
-LLM은 항상 완전한 JSON만 반환하지 않을 수 있다.
-
-예를 들어 다음과 같은 응답이 올 수 있다.
+검증 대상:
 
 ```text
-좋아요! 아래 여행지를 추천합니다.
-
-{
-  "cities": [
-    {"city": "부산", "reason": "겨울 바다를 즐기기 좋음"}
-  ]
-}
+dict인가?
+↓
+recommended_city 존재?
+↓
+weather 존재?
+↓
+events가 list인가?
+↓
+reason 존재?
+↓
+각 필드 타입 정상?
 ```
 
-또는 다음처럼 JSON이 깨질 수도 있다.
-
-```json
-{
-  "cities": [
-    {
-      "city": "부산",
-      "reason": "겨울 바다를 즐기기 좋음",
-    }
-  ]
-}
-```
-
-이 경우 `json.loads()`에서 파싱 실패가 발생한다.
+이 과정을 거치면 잘못된 응답을 조기에 발견할 수 있습니다.
 
 ---
 
-## 보완 정책
+# 87. 캐싱과 API 비용
 
-| 항목 | 정책 |
-|---|---|
-| 기본 요청 | 일반 여행 추천 프롬프트 사용 |
-| 파싱 실패 시 | 오류 기록 후 1회 재요청 |
-| 재요청 횟수 | 최대 1회 |
-| 재요청 프롬프트 | JSON만 출력하도록 강하게 제한 |
-| 재요청 실패 시 | 빈 추천 목록으로 처리하고 오류 기록 |
-| 오류 기록 위치 | `errors` 리스트 |
-| 최종 리포트 | 오류 기록 섹션에 실패 사유 표시 |
+동일한 날짜를 여러 번 요청하면 API 호출이 반복됩니다.
 
----
-
-## 프롬프트 보정 전략
-
-### 1차 요청 프롬프트
+캐싱:
 
 ```text
-사용자가 입력한 날짜에 어울리는 국내 여행 도시 3곳을 추천해줘.
-반드시 JSON 형식으로 응답해줘.
+첫 요청
+→ API 사용
 
-형식:
-{
-  "cities": [
-    {
-      "city": "도시명",
-      "reason": "추천 이유"
-    }
-  ]
-}
+두 번째 요청
+→ 캐시 사용
 ```
 
-### 재요청 프롬프트
+따라서 개발 및 반복 실행 환경에서 API 호출을 줄일 수 있습니다.
+
+---
+
+# 88. 캐시 무효화
+
+캐싱을 추가할 경우 다음 문제도 고려해야 합니다.
 
 ```text
-이전 응답은 JSON 파싱에 실패했다.
-이번에는 설명, 마크다운, 코드블록 없이 순수 JSON만 출력해라.
-
-반드시 아래 스키마를 지켜라.
-
-{
-  "cities": [
-    {
-      "city": "문자열",
-      "reason": "문자열"
-    }
-  ]
-}
-
-주의:
-- JSON 외 문장을 절대 포함하지 마라.
-- ```json 코드블록을 사용하지 마라.
-- 마지막 원소 뒤에 쉼표를 붙이지 마라.
-- cities는 반드시 list 타입이어야 한다.
+오래된 결과
 ```
 
----
-
-# 3. 동일 날짜 캐싱 정책
-
-## 문제점
-
-같은 날짜로 여러 번 요청하면 매번 다음 작업이 반복된다.
-
-1. LLM 호출
-2. JSON 파싱
-3. 지도 API 호출
-4. Markdown 생성
-5. JSON 저장
-
-이는 비용과 시간이 낭비된다.
-
----
-
-## 보완 정책
-
-| 항목 | 정책 |
-|---|---|
-| 캐시 기준 | 여행 날짜 `date_str` |
-| 캐시 위치 | `outputs/cache/` |
-| 캐시 파일명 | `trip_result_YYYY-MM-DD.json` |
-| 캐시 확인 시점 | LLM 호출 전 |
-| 캐시가 있으면 | LLM과 지도 API를 호출하지 않고 기존 결과 재사용 |
-| 캐시가 없으면 | 새로 생성 후 캐시 저장 |
-| 캐시 데이터 | 최종 `trip_data` 전체 |
-| 강제 새로고침 | `force_refresh=True`일 때 캐시 무시 |
-
----
-
-## 캐시 적용 위치
-
-전체 흐름은 다음과 같이 변경한다.
+따라서 향후에는:
 
 ```text
-사용자 날짜 입력
-        ↓
-캐시 파일 존재 여부 확인
-        ↓
-캐시 있음 → 기존 결과 반환
-        ↓
-캐시 없음
-        ↓
-LLM 호출
-        ↓
-LLM 응답 파싱 및 검증
-        ↓
-필요 시 1회 재요청
-        ↓
-도시명 정규화
-        ↓
-지도 API 호출
-        ↓
-최종 결과 생성
-        ↓
-캐시 저장
+--force-refresh
+```
+
+같은 옵션을 추가하여 캐시를 무시하고 새로 생성할 수 있습니다.
+
+예:
+
+```bash
+python trip.py --date 2026-10-15 --force-refresh
 ```
 
 ---
 
-# 4. 도시명 정규화 정책
+# 89. 검색 품질과 지명 정규화
 
-## 문제점
-
-LLM이 반환하는 도시명은 지도 API 검색에 바로 쓰기 어려울 수 있다.
-
-예시는 다음과 같다.
-
-| 입력 | 문제 |
-|---|---|
-| `부산` | 행정구역명이 축약됨 |
-| `서울 강남` | 도시와 구 단위가 섞여 있음 |
-| `광주` | 광주광역시인지 경기도 광주시인지 모호함 |
-| `제주 여행` | 검색에 불필요한 단어 포함 |
-| `해운대` | 부산의 구체 지역이지만 도시명이 없음 |
-
----
-
-## 정규화 규칙
-
-| 규칙 | 설명 | 예시 |
-|---|---|---|
-| 공백 정리 | 앞뒤 공백 및 중복 공백 제거 | ` 서울   강남 ` → `서울 강남` |
-| 불필요 키워드 제거 | 여행, 추천, 맛집 등 목적어 제거 | `제주 여행` → `제주` |
-| 행정구역 보정 | 축약 도시명을 정식 명칭으로 보정 | `부산` → `부산광역시` |
-| 동음이의어 처리 | 모호한 지명은 규칙에 따라 보정 또는 경고 기록 | `광주` → `광주광역시` |
-| 세부 지역 유지 | 구, 동, 읍 등 세부 지역은 검색어에 유지 | `서울 강남` → `서울특별시 강남` |
-| 중심 지명 추출 | 긴 문장에서 핵심 지명을 추출 | `부산 해운대 근처` → `부산광역시 해운대` |
-| 검색어 생성 | 정규화 지명 뒤에 목적 키워드 추가 | `부산광역시 해운대 맛집` |
-
----
-
-# 5. 전체 구현 코드
-
-아래 코드는 다음 기능을 포함한다.
-
-- LLM 응답 JSON 파싱
-- 필수 키 및 타입 검사
-- 파싱 실패 시 1회 재요청
-- 보정 프롬프트 사용
-- 동일 날짜 캐시 확인 및 저장
-- 도시명 정규화
-- 지도 API 검색어 생성
-- 오류 기록 누적
-
-```python
-import json
-import re
-from pathlib import Path
-from datetime import datetime
-
-
-# =========================
-# 오류 기록
-# =========================
-
-def add_error(errors, step, message, city="-", provider="-", attempt="-"):
-    """
-    발생한 오류를 errors 리스트에 누적한다.
-    """
-
-    errors.append({
-        "step": step,
-        "city": city,
-        "provider": provider,
-        "attempt": attempt,
-        "message": str(message)
-    })
-
-
-# =========================
-# 캐싱 로직
-# =========================
-
-def get_cache_path(date_str, cache_dir="outputs/cache"):
-    """
-    날짜를 기준으로 캐시 파일 경로를 생성한다.
-
-    예:
-        2025-12-25 -> outputs/cache/trip_result_2025-12-25.json
-    """
-
-    Path(cache_dir).mkdir(parents=True, exist_ok=True)
-    return Path(cache_dir) / f"trip_result_{date_str}.json"
-
-
-def load_cached_result(date_str, cache_dir="outputs/cache"):
-    """
-    동일 날짜의 캐시 결과가 있으면 불러온다.
-    캐시가 없으면 None을 반환한다.
-    """
-
-    cache_path = get_cache_path(date_str, cache_dir)
-
-    if not cache_path.exists():
-        return None
-
-    with open(cache_path, "r", encoding="utf-8") as file:
-        return json.load(file)
-
-
-def save_cached_result(date_str, trip_data, cache_dir="outputs/cache"):
-    """
-    최종 여행 결과를 날짜 기준 캐시 파일로 저장한다.
-    """
-
-    cache_path = get_cache_path(date_str, cache_dir)
-
-    with open(cache_path, "w", encoding="utf-8") as file:
-        json.dump(trip_data, file, ensure_ascii=False, indent=2)
-
-    return str(cache_path)
-
-
-# =========================
-# LLM 프롬프트
-# =========================
-
-def make_initial_prompt(date_str):
-    """
-    1차 LLM 요청 프롬프트를 생성한다.
-    """
-
-    return f"""
-사용자가 입력한 날짜는 {date_str}이다.
-
-이 날짜에 어울리는 국내 여행 도시 3곳을 추천해줘.
-반드시 JSON 형식으로만 응답해줘.
-
-형식:
-{{
-  "cities": [
-    {{
-      "city": "도시명",
-      "reason": "추천 이유"
-    }}
-  ]
-}}
-""".strip()
-
-
-def make_retry_prompt(date_str, previous_response, error_message):
-    """
-    JSON 파싱 또는 검증 실패 시 사용하는 보정 프롬프트를 생성한다.
-    """
-
-    return f"""
-이전 응답은 JSON 파싱 또는 스키마 검증에 실패했다.
-
-날짜:
-{date_str}
-
-이전 응답:
-{previous_response}
-
-오류:
-{error_message}
-
-이번에는 설명, 마크다운, 코드블록 없이 순수 JSON만 출력해라.
-
-반드시 아래 스키마를 지켜라.
-
-{{
-  "cities": [
-    {{
-      "city": "문자열",
-      "reason": "문자열"
-    }}
-  ]
-}}
-
-주의:
-- JSON 외 문장을 절대 포함하지 마라.
-- ```json 코드블록을 사용하지 마라.
-- 마지막 원소 뒤에 쉼표를 붙이지 마라.
-- cities는 반드시 list 타입이어야 한다.
-- city와 reason은 반드시 문자열이어야 한다.
-""".strip()
-
-
-# =========================
-# LLM 응답 파싱 및 검증
-# =========================
-
-def parse_llm_json(raw_response):
-    """
-    LLM 원본 응답 문자열을 JSON으로 파싱한다.
-    """
-
-    try:
-        return json.loads(raw_response)
-
-    except json.JSONDecodeError as e:
-        raise ValueError(f"LLM JSON 파싱 실패: {e}")
-
-
-def validate_llm_response(data):
-    """
-    LLM 응답의 필수 키와 타입을 검사한다.
-
-    기대 형식:
-    {
-      "cities": [
-        {
-          "city": "부산",
-          "reason": "추천 이유"
-        }
-      ]
-    }
-    """
-
-    if not isinstance(data, dict):
-        raise ValueError("LLM 응답은 dict 타입이어야 합니다.")
-
-    if "cities" not in data:
-        raise ValueError("필수 키 'cities'가 없습니다.")
-
-    if not isinstance(data["cities"], list):
-        raise ValueError("'cities'는 list 타입이어야 합니다.")
-
-    for index, item in enumerate(data["cities"]):
-        if not isinstance(item, dict):
-            raise ValueError(f"cities[{index}]는 dict 타입이어야 합니다.")
-
-        if "city" not in item:
-            raise ValueError(f"cities[{index}]에 필수 키 'city'가 없습니다.")
-
-        if "reason" not in item:
-            raise ValueError(f"cities[{index}]에 필수 키 'reason'이 없습니다.")
-
-        if not isinstance(item["city"], str):
-            raise ValueError(f"cities[{index}]['city']는 str 타입이어야 합니다.")
-
-        if not isinstance(item["reason"], str):
-            raise ValueError(f"cities[{index}]['reason']은 str 타입이어야 합니다.")
-
-    return True
-
-
-def get_trip_recommendation_with_retry(call_llm_func, date_str, errors):
-    """
-    LLM 여행 추천을 요청한다.
-
-    정책:
-    - 1차 요청 실패 시 보정 프롬프트로 1회 재요청
-    - 총 시도 횟수는 최대 2회
-    - 재요청까지 실패하면 빈 cities를 반환
-    """
-
-    previous_response = ""
-    last_error = None
-
-    for attempt in range(1, 3):
-        try:
-            if attempt == 1:
-                prompt = make_initial_prompt(date_str)
-            else:
-                prompt = make_retry_prompt(
-                    date_str=date_str,
-                    previous_response=previous_response,
-                    error_message=last_error
-                )
-
-            raw_response = call_llm_func(prompt)
-            previous_response = raw_response
-
-            parsed_data = parse_llm_json(raw_response)
-            validate_llm_response(parsed_data)
-
-            return parsed_data
-
-        except Exception as e:
-            last_error = e
-
-            add_error(
-                errors=errors,
-                step="llm_parse_or_validate",
-                provider="LLM",
-                attempt=attempt,
-                message=e
-            )
-
-    add_error(
-        errors=errors,
-        step="llm_retry_failed",
-        provider="LLM",
-        attempt=2,
-        message="LLM 응답 파싱 또는 검증이 1회 재요청 후에도 실패했습니다."
-    )
-
-    return {
-        "cities": []
-    }
-
-
-# =========================
-# 도시명 정규화 로직
-# =========================
-
-CITY_ALIAS_MAP = {
-    "서울": "서울특별시",
-    "부산": "부산광역시",
-    "대구": "대구광역시",
-    "인천": "인천광역시",
-    "광주": "광주광역시",
-    "대전": "대전광역시",
-    "울산": "울산광역시",
-    "세종": "세종특별자치시",
-    "제주": "제주특별자치도",
-    "강원": "강원특별자치도",
-    "전북": "전북특별자치도"
-}
-
-HOMONYM_RULES = {
-    "광주": {
-        "default": "광주광역시",
-        "alternatives": ["경기도 광주시"],
-        "message": "광주는 광주광역시와 경기도 광주시가 모두 가능하므로 기본값을 광주광역시로 사용합니다."
-    }
-}
-
-LOCAL_PLACE_MAP = {
-    "해운대": "부산광역시 해운대",
-    "강남": "서울특별시 강남",
-    "홍대": "서울특별시 마포구 홍대",
-    "성수": "서울특별시 성동구 성수",
-    "월정리": "제주특별자치도 제주시 구좌읍 월정리",
-    "애월": "제주특별자치도 제주시 애월읍"
-}
-
-REMOVE_WORDS = [
-    "여행",
-    "추천",
-    "맛집",
-    "근처",
-    "주변",
-    "가볼만
-
-# 평가 항목 #10 보완: GET/POST 사용 이유 및 예시 엔드포인트 문서화
-
-## 평가 결과
-
-| 구분 | 내용 |
-|---|---|
-| 결과 | FAIL |
-| 평가 항목 | #10 |
-| 근거 | `trip.py > res = requests.get(url, headers=headers, params=params)` |
-| 잘한 점 | Kakao API에 `GET`을 사용해 호출 중임을 코드에서 확인 가능 |
-| 부족한 점 | 문서에서 `GET`/`POST` 용도 구분, 예시 엔드포인트 설명이 없음 |
-| 보완 | README에 `GET`/`POST` 사용처, 사용 이유, 예시 엔드포인트 항목을 추가 |
-
----
-
-## 1. 문제점
-
-현재 코드에서는 Kakao Local API를 다음과 같이 `GET` 방식으로 호출한다.
-
-```python
-res = requests.get(url, headers=headers, params=params)
-```
-
-하지만 README 문서에는 다음 내용이 명확히 설명되어 있지 않다.
-
-- 왜 Kakao API 호출에 `GET`을 사용하는지
-- 어떤 엔드포인트를 호출하는지
-- `GET`과 `POST`를 어떤 기준으로 구분하는지
-- 프로젝트에서 `POST`는 어떤 상황에서 사용할 수 있는지
-- 요청 파라미터와 예시 응답이 무엇인지
-
-따라서 코드에는 `GET` 사용이 확인되지만, API 설계 문서화가 부족하여 평가 항목 #10에서 FAIL이 발생하였다.
-
----
-
-## 2. GET/POST 사용 기준
-
-본 프로젝트에서는 API의 목적에 따라 `GET`과 `POST`를 구분하여 사용한다.
-
-| HTTP Method | 사용 목적 | 데이터 전달 방식 | 본 프로젝트 사용 예 |
-|---|---|---|---|
-| `GET` | 기존 데이터 조회 | URL Query Parameter | Kakao Local API로 맛집 검색 |
-| `POST` | 데이터 생성 또는 처리 요청 | Request Body | LLM API에 프롬프트 전송 시 사용 가능 |
-
----
-
-## 3. Kakao Local API 호출 방식
-
-### 사용 Method
-
-```http
-GET
-```
-
-### 사용 이유
-
-Kakao Local API의 키워드 검색은 서버에 새로운 데이터를 생성하는 작업이 아니라,  
-검색어를 기준으로 기존 장소 데이터를 조회하는 작업이다.
-
-따라서 `POST`가 아니라 `GET` 요청을 사용한다.
-
----
-
-## 4. Kakao Local API 예시 엔드포인트
-
-### Endpoint
-
-```text
-https://dapi.kakao.com/v2/local/search/keyword.json
-```
-
-### 기능
-
-입력한 키워드를 기준으로 장소 정보를 검색한다.
-
-예를 들어 다음과 같은 검색어를 사용할 수 있다.
+검색 API는 검색어의 품질에 영향을 받습니다.
 
 ```text
 부산 맛집
-제주 카페
-서울 강남 맛집
 ```
+
+보다:
+
+```text
+부산광역시 해운대구 맛집
+```
+
+처럼 구체적인 검색어가 필요한 경우가 있습니다.
+
+AI 출력이 항상 일정하지 않기 때문에 정규화 계층을 두는 것이 확장에 도움이 됩니다.
 
 ---
 
-## 5. Kakao API 요청 예시
+# 90. API 추상화의 장점
+
+현재:
+
+```text
+search_restaurants()
+      ↓
+Kakao API
+```
+
+향후:
+
+```text
+search_restaurants()
+      ↓
+MapProvider
+      ↓
+Kakao
+```
+
+가 되면 지도 서비스 교체가 쉬워집니다.
+
+---
+
+# 91. Provider 패턴 예시
 
 ```python
-import requests
+class MapProvider:
 
-url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+    def search_restaurants(self, city):
+        raise NotImplementedError
+```
 
-headers = {
-    "Authorization": "KakaoAK YOUR_KAKAO_API_KEY"
-}
+구현:
 
-params = {
-    "query": "부산 맛집",
-    "size": 5
-}
+```python
+class KakaoMapProvider(MapProvider):
+    ...
+```
 
-res = requests.get(
-    url,
-    headers=headers,
-    params=params,
-    timeout=5
-)
+향후:
 
-data = res.json()
+```python
+class NaverMapProvider(MapProvider):
+    ...
+```
+
+이런 구조로 확장할 수 있습니다.
+
+---
+
+# 92. 현재 코드와 향후 구조 비교
+
+현재:
+
+```text
+main()
+ ↓
+search_restaurants()
+ ↓
+Kakao
+```
+
+향후:
+
+```text
+main()
+ ↓
+travel service
+ ↓
+map provider
+ ↓
+Kakao
 ```
 
 ---
 
-## 6. 실제 요청 URL 예시
+# 93. API 응답 필드 최소화
 
-```http
-GET https://dapi.kakao.com/v2/local/search/keyword.json?query=부산%20맛집&size=5
+외부 API는 많은 정보를 반환할 수 있습니다.
+
+그러나 프로그램에 필요한 필드만 사용합니다.
+
+```text
+place_name
+address_name
+road_address_name
+place_url
 ```
 
-위 요청은 다음 의미를 가진다.
+현재 최종 데이터:
 
-| 항목 | 값 |
+```text
+name
+address
+url
+```
+
+이렇게 데이터 모델을 단순화하면 후속 처리도 쉬워집니다.
+
+---
+
+# 94. Markdown 자동 생성의 장점
+
+프로그램 결과를 단순히 터미널에 출력하는 대신 파일로 저장합니다.
+
+```text
+CLI 결과
++
+JSON
++
+Markdown
+```
+
+따라서 실행 후에도 결과를 다시 확인할 수 있습니다.
+
+---
+
+# 95. 결과 파일 예시
+
+```text
+results/
+├── report_2026-10-01.json
+├── report_2026-10-02.json
+├── report_2026-10-15.json
+└── report_2026-12-25.json
+```
+
+여러 날짜의 여행 계획을 동시에 관리할 수 있습니다.
+
+---
+
+# 96. Markdown을 선택한 이유
+
+Markdown은:
+
+- 사람이 읽기 쉬움
+- 표 작성 가능
+- 링크 삽입 가능
+- GitHub에서 바로 표시됨
+- 다른 문서 형식으로 변환하기 쉬움
+
+이라는 장점이 있습니다.
+
+---
+
+# 97. JSON을 선택한 이유
+
+JSON은:
+
+- 구조화된 데이터
+- Python에서 처리하기 쉬움
+- 다른 언어에서도 사용 가능
+- API와 잘 맞음
+- 후속 프로그램에서 재사용 가능
+
+이라는 장점이 있습니다.
+
+---
+
+# 98. 프로젝트 실행 결과의 이중 저장
+
+```text
+                 여행 데이터
+                    │
+            ┌───────┴───────┐
+            ▼               ▼
+          JSON           Markdown
+            │               │
+       프로그램용         사용자용
+```
+
+이러한 구조를 통해 동일한 데이터를 두 가지 목적으로 사용할 수 있습니다.
+
+---
+
+# 99. 프로젝트 한계
+
+현재 프로그램은 다음 범위에 집중합니다.
+
+```text
+여행 날짜
+↓
+국내 도시 1곳
+↓
+맛집 최대 5곳
+↓
+파일 저장
+```
+
+아직 다음은 구현되어 있지 않습니다.
+
+```text
+숙박
+교통
+실시간 날씨
+여행 일정 자동 최적화
+사용자 취향 학습
+웹 UI
+캐싱
+상세 예외 처리
+```
+
+---
+
+# 100. 향후 최종 목표
+
+확장된 프로그램은 다음과 같은 흐름을 목표로 할 수 있습니다.
+
+```text
+여행 날짜
++
+여행 기간
++
+예산
++
+취향
++
+동행자
+       ↓
+Gemini
+       ↓
+여행지 추천
+       ↓
+날씨 API
+       ↓
+관광지 API
+       ↓
+Kakao/Naver 지도
+       ↓
+숙박 정보
+       ↓
+일정 최적화
+       ↓
+AI 여행 리포트
+```
+
+---
+
+# 101. 실행 체크리스트
+
+실행 전:
+
+- [ ] Python 설치
+- [ ] 패키지 설치
+- [ ] `.env` 생성
+- [ ] Gemini API Key 입력
+- [ ] Kakao REST API Key 입력
+- [ ] 인터넷 연결 확인
+
+실행:
+
+```bash
+python trip.py --date 2026-10-15
+```
+
+실행 후:
+
+- [ ] 추천 도시 확인
+- [ ] 맛집 개수 확인
+- [ ] `results/report_2026-10-15.json` 확인
+- [ ] `results/report_2026-10-15.md` 확인
+
+---
+
+# 102. 문제 해결
+
+## `ModuleNotFoundError`
+
+예:
+
+```text
+ModuleNotFoundError: No module named 'requests'
+```
+
+해결:
+
+```bash
+pip install requests
+```
+
+또는:
+
+```bash
+pip install google-generativeai python-dotenv requests
+```
+
+---
+
+## API Key 오류
+
+`.env`를 확인합니다.
+
+```env
+GEMINI_API_KEY=...
+KAKAO_API_KEY=...
+```
+
+공백이나 잘못된 Key가 없는지 확인합니다.
+
+---
+
+## Kakao HTTP 오류
+
+현재 코드의:
+
+```python
+res.raise_for_status()
+```
+
+에서 오류가 발생할 수 있습니다.
+
+Key와 Kakao Developers 설정을 확인합니다.
+
+---
+
+## JSON 파싱 오류
+
+Gemini 응답이 예상한 JSON 형식인지 확인합니다.
+
+현재 코드에서는:
+
+```python
+json.loads(response.text)
+```
+
+를 사용합니다.
+
+향후 JSON 검증 및 재요청 기능을 추가할 수 있습니다.
+
+---
+
+# 103. 개발 및 유지보수 원칙
+
+## 원칙 1
+
+API Key는 코드에 작성하지 않습니다.
+
+## 원칙 2
+
+외부 API 호출에는 오류 처리를 추가합니다.
+
+## 원칙 3
+
+LLM 출력은 검증합니다.
+
+## 원칙 4
+
+데이터와 표시 형식을 분리합니다.
+
+## 원칙 5
+
+기능이 커지면 Provider 구조를 고려합니다.
+
+## 원칙 6
+
+반복 API 호출은 캐싱을 고려합니다.
+
+---
+
+# 104. 코드 품질 개선 체크리스트
+
+현재:
+
+- [x] 함수 분리
+- [x] 환경 변수 사용
+- [x] 날짜 검증
+- [x] JSON 저장
+- [x] Markdown 저장
+- [x] API 응답 필드 선택
+
+향후:
+
+- [ ] timeout
+- [ ] 예외 클래스 세분화
+- [ ] logging
+- [ ] LLM 응답 스키마 검증
+- [ ] retry
+- [ ] cache
+- [ ] provider abstraction
+- [ ] unit test
+
+---
+
+# 105. 단위 테스트 확장
+
+향후 다음 함수를 테스트할 수 있습니다.
+
+```text
+valid_date()
+normalize_city_name()
+validate_city_info()
+search_restaurants()
+save_report()
+save_markdown()
+```
+
+예:
+
+```python
+def test_valid_date():
+    assert valid_date("2026-10-15") == "2026-10-15"
+```
+
+잘못된 날짜:
+
+```python
+def test_invalid_date():
+    ...
+```
+
+---
+
+# 106. 테스트 가능한 구조
+
+함수별로 역할이 분리되어 있기 때문에 향후 테스트 코드를 추가하기 쉽습니다.
+
+```text
+입력
+ ↓
+함수
+ ↓
+출력
+```
+
+예:
+
+```text
+"2026-10-15"
+ ↓
+valid_date()
+ ↓
+"2026-10-15"
+```
+
+---
+
+# 107. 최종 요약
+
+본 프로젝트는 다음 기술을 하나의 프로그램에 결합했습니다.
+
+```text
+Python
++
+CLI
++
+Gemini
++
+Kakao Local API
++
+JSON
++
+Markdown
++
+환경 변수
+```
+
+핵심 처리 과정:
+
+```text
+날짜 입력
+ ↓
+날짜 검증
+ ↓
+Gemini 여행지 추천
+ ↓
+추천 도시 추출
+ ↓
+Kakao 맛집 검색
+ ↓
+JSON 저장
+ ↓
+Markdown 저장
+```
+
+---
+
+# 108. 프로젝트의 핵심 학습 포인트
+
+## Python 함수
+
+기능별 함수를 분리하여 프로그램 구조를 구성했습니다.
+
+## API
+
+외부 API를 호출하고 JSON 응답을 처리했습니다.
+
+## LLM
+
+Gemini에 구조화된 JSON 응답을 요청했습니다.
+
+## 파일 처리
+
+JSON과 Markdown을 자동 생성했습니다.
+
+## 보안
+
+API Key를 `.env`로 분리했습니다.
+
+## CLI
+
+`argparse`를 이용하여 명령줄 입력을 처리했습니다.
+
+---
+
+# 109. 현재 구현과 평가 문서의 관계
+
+이 README는 프로젝트의 현재 코드를 기준으로 사실관계를 구분하면서, 평가에서 요구될 수 있는 설계 요소에 대해서는 개선 방향과 구현 예시까지 함께 설명합니다.
+
+따라서 다음 두 가지를 구분합니다.
+
+```text
+[현재 구현]
+실제로 trip.py에서 동작하는 기능
+
+[개선 설계]
+현재 코드에는 없지만 향후 추가할 수 있는 기능
+```
+
+이 구분은 프로젝트 문서의 정확성을 유지하기 위한 것입니다.
+
+---
+
+# 110. 최종 프로젝트 설명
+
+본 프로젝트는 Python 기반 CLI 환경에서 Google Gemini API와 Kakao Local API를 연동하여 여행 추천 과정을 자동화한 프로그램입니다.
+
+사용자가 여행 날짜를 입력하면 Gemini가 해당 날짜에 적합한 국내 도시 1곳을 추천하고, 추천 도시를 검색어로 사용하여 Kakao Local API에서 최대 5개의 맛집 정보를 검색합니다.
+
+수집한 데이터는 JSON으로 구조화하여 저장하고, 동일한 내용을 사람이 읽기 쉬운 Markdown 여행 리포트로도 저장합니다.
+
+또한 날짜 입력 검증, 환경 변수 기반 API Key 관리, API 응답 상태 확인, 함수별 역할 분리 등의 구조를 적용했습니다.
+
+향후에는 외부 API 예외 처리 강화, LLM 응답 검증 및 재요청, 캐싱, 도시명 정규화, 지도 API 추상화 등을 추가하여 안정성과 확장성을 높일 수 있습니다.
+
+---
+
+# 111. 제출 전 최종 확인
+
+```text
+[프로젝트]
+AI 여행 추천 CLI
+
+[입력]
+여행 날짜
+
+[AI]
+Google Gemini
+
+[외부 데이터]
+Kakao Local API
+
+[출력]
+JSON + Markdown
+
+[언어]
+Python
+
+[실행]
+python trip.py --date YYYY-MM-DD
+```
+
+---
+
+# 112. Author
+
+**artseller-design**
+
+GitHub Repository:
+
+https://github.com/artseller-design/ai-travel-cli
+
+---
+
+# 113. 문서 버전
+
+```text
+README Version: Evaluation-Oriented Final
+Code Basis: Current trip.py
+```
+
+이 문서는 현재 코드와 향후 개선 설계를 구분하여 프로젝트의 실행 방법과 기술적 설계 근거를 함께 제공하는 것을 목적으로 합니다.
+
+---
+
+# 부록 1. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
 |---|---|
-| Method | `GET` |
-| Endpoint | `/v2/local/search/keyword.json` |
-| Query | `부산 맛집` |
-| Size | `5` |
-| 목적 | 부산 지역의 맛집 장소 정보 조회 |
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
 
----
+## 데이터 흐름
 
-## 7. 주요 요청 파라미터
-
-| 파라미터 | 타입 | 필수 여부 | 설명 | 예시 |
-|---|---|---|---|---|
-| `query` | string | 필수 | 검색 키워드 | `부산 맛집` |
-| `size` | integer | 선택 | 한 페이지에 가져올 결과 개수 | `5` |
-| `page` | integer | 선택 | 결과 페이지 번호 | `1` |
-| `x` | string | 선택 | 중심 좌표의 X값, 경도 | `129.0756` |
-| `y` | string | 선택 | 중심 좌표의 Y값, 위도 | `35.1796` |
-| `radius` | integer | 선택 | 중심 좌표 기준 검색 반경, 단위 meter | `20000` |
-
----
-
-## 8. Kakao API 응답 예시
-
-```json
-{
-  "documents": [
-    {
-      "place_name": "맛집 이름",
-      "address_name": "부산광역시 해운대구 ...",
-      "road_address_name": "부산광역시 해운대구 ...",
-      "phone": "051-000-0000",
-      "place_url": "https://place.map.kakao.com/..."
-    }
-  ],
-  "meta": {
-    "is_end": false,
-    "pageable_count": 45,
-    "total_count": 120
-  }
-}
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
 ```
 
----
-
-## 9. 응답 데이터에서 사용하는 필드
-
-본 프로젝트에서는 Kakao API 응답 중 다음 필드를 사용한다.
-
-| 필드 | 설명 | 사용 위치 |
-|---|---|---|
-| `documents` | 장소 검색 결과 목록 | 맛집 목록 생성 |
-| `place_name` | 장소 이름 | Markdown 맛집 이름 |
-| `address_name` | 지번 주소 | 주소 표시 |
-| `road_address_name` | 도로명 주소 | 주소 표시 |
-| `phone` | 전화번호 | 전화번호 표시 |
-| `place_url` | Kakao 장소 상세 링크 | 링크 표시 |
-
----
-
-## 10. POST 사용 가능 위치
-
-현재 Kakao Local API 호출에는 `GET`을 사용한다.
-
-반면, LLM API를 직접 호출하는 경우에는 일반적으로 `POST`를 사용할 수 있다.
-
-LLM API는 단순 조회가 아니라 사용자의 프롬프트를 Request Body에 담아 서버에 전달하고, 서버가 새로운 응답을 생성하는 방식이기 때문이다.
-
----
-
-## 11. LLM API POST 요청 예시
+## 평가 시 확인할 코드
 
 ```python
-import requests
-
-url = "https://api.openai.com/v1/chat/completions"
-
-headers = {
-    "Authorization": "Bearer YOUR_OPENAI_API_KEY",
-    "Content-Type": "application/json"
-}
-
-body = {
-    "model": "gpt-4o-mini",
-    "messages": [
-        {
-            "role": "user",
-            "content": "2025-12-25에 어울리는 국내 여행지를 JSON으로 추천해줘."
-        }
-    ]
-}
-
-res = requests.post(
-    url,
-    headers=headers,
-    json=body,
-    timeout=10
-)
-
-data = res.json()
+def recommend_city(date: str) -> dict:
+    ...
 ```
-
----
-
-## 12. GET과 POST 선택 기준 비교
-
-| 구분 | GET | POST |
-|---|---|---|
-| 주 목적 | 데이터 조회 | 데이터 생성 또는 처리 요청 |
-| 데이터 전달 위치 | URL Query Parameter | Request Body |
-| 캐싱 가능성 | 상대적으로 높음 | 상대적으로 낮음 |
-| URL 노출 | Query가 URL에 노출됨 | Body에 담겨 URL에 직접 노출되지 않음 |
-| 본 프로젝트 예시 | Kakao 맛집 검색 | LLM 프롬프트 전송 |
-| 코드 예시 | `requests.get()` | `requests.post()` |
-
----
-
-## 13. 본 프로젝트 API 사용 요약
-
-| 기능 | API | Method | Endpoint | 사용 이유 |
-|---|---|---|---|---|
-| 맛집 검색 | Kakao Local API | `GET` | `/v2/local/search/keyword.json` | 검색어 기반 장소 데이터 조회 |
-| 여행 추천 생성 | LLM API | `POST` | `/v1/chat/completions` 등 | 프롬프트를 본문에 담아 응답 생성 요청 |
-| 결과 저장 | 로컬 파일 시스템 | 해당 없음 | `outputs/` | 생성된 JSON/Markdown 결과 저장 |
-| 캐시 조회 | 로컬 파일 시스템 | 해당 없음 | `outputs/cache/` | 동일 날짜 결과 재사용 |
-
----
-
-## 14. 코드 내 GET 사용 위치
-
-현재 Kakao API 호출부는 다음과 같다.
 
 ```python
-res = requests.get(
-    url,
-    headers=headers,
-    params=params,
-    timeout=5
-)
+def search_restaurants(city: str) -> list:
+    ...
 ```
 
-여기서 각 인자의 의미는 다음과 같다.
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
 
-| 인자 | 설명 |
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
+
+
+---
+
+# 부록 2. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
 |---|---|
-| `url` | Kakao Local API 엔드포인트 |
-| `headers` | Kakao API 인증키 포함 |
-| `params` | 검색어, 결과 개수 등 Query Parameter |
-| `timeout` | API 응답 대기 시간 제한 |
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
+
 
 ---
 
-## 15. 보완 결과
+# 부록 3. 평가 및 기술 검토 자료
 
-이번 보완으로 README에 다음 내용이 추가되었다.
+## 검토 목적
 
-- Kakao API에 `GET`을 사용하는 이유
-- Kakao Local API 예시 엔드포인트
-- 실제 요청 URL 예시
-- 주요 요청 파라미터 설명
-- 응답 데이터 구조 예시
-- 프로젝트에서 사용하는 응답 필드
-- `GET`과 `POST` 사용 기준
-- LLM API에서 `POST`를 사용할 수 있는 이유
-- 프로젝트 전체 API 사용 요약
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
 
-따라서 평가 항목 #10의 부족한 점인  
-“문서에 GET/POST 용도 구분, 예시 엔드포인트 설명이 없음”을 보완하였다.
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
 
 
+---
+
+# 부록 4. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
 
 
+---
+
+# 부록 5. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
 
 
-📌 최종 정리
-이 프로젝트는 Gemini AI를 이용해 여행지를 추천하고,
-Kakao Local API를 이용해 실제 맛집 정보를 검색하는 CLI 기반 여행 추천 프로그램입니다.
+---
 
-특히 외부 API 호출 실패 상황을 고려하여,
-Kakao API 호출 중 오류가 발생해도 프로그램이 중단되지 않고
-맛집 정보를 "데이터 없음"으로 처리하도록 구현했습니다.
+# 부록 6. 평가 및 기술 검토 자료
 
-이를 통해 일부 기능에 문제가 발생하더라도 전체 여행 추천 리포트는 정상적으로 생성됩니다.
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
 
 
+---
 
-이 README는 평가 항목 #3에서 지적한 내용을 잘 반영합니다.
+# 부록 7. 평가 및 기술 검토 자료
 
-핵심 보완 내용은 다음 3가지입니다.
+## 검토 목적
 
-1. `requests.get()` 실패 가능성을 설명함  
-2. `try-except`, `timeout`, `raise_for_status()`를 사용한 예외 처리 방식을 명시함  
-3. 실패 시 빈 리스트 `[]` 반환 후 `"데이터 없음"`으로 리포트에 표시한다고 설명함  
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
 
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
+
+
+---
+
+# 부록 8. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
+
+
+---
+
+# 부록 9. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
+
+
+---
+
+# 부록 10. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
+
+
+---
+
+# 부록 11. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
+
+
+---
+
+# 부록 12. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
+
+
+---
+
+# 부록 13. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
+
+
+---
+
+# 부록 14. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
+
+
+---
+
+# 부록 15. 평가 및 기술 검토 자료
+
+## 검토 목적
+
+이 부록은 프로젝트를 평가하거나 발표할 때 현재 코드의 동작을 빠르게 확인하기 위한 자료입니다.
+
+## 확인 항목
+
+| 항목 | 현재 코드 기준 |
+|---|---|
+| 날짜 입력 | `argparse --date` |
+| 날짜 검증 | `valid_date()` |
+| AI 호출 | `recommend_city()` |
+| 지도 검색 | `search_restaurants()` |
+| JSON 저장 | `save_report()` |
+| Markdown 저장 | `save_markdown()` |
+| 환경 변수 | `load_dotenv()` |
+| 결과 폴더 | `results/` |
+
+## 데이터 흐름
+
+```text
+CLI
+ ↓
+valid_date
+ ↓
+recommend_city
+ ↓
+search_restaurants
+ ↓
+save_report
+ ↓
+save_markdown
+```
+
+## 평가 시 확인할 코드
+
+```python
+def recommend_city(date: str) -> dict:
+    ...
+```
+
+```python
+def search_restaurants(city: str) -> list:
+    ...
+```
+
+```python
+def save_report(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+```python
+def save_markdown(date: str, city_info: dict, restaurants: list):
+    ...
+```
+
+## 개선 확인
+
+다음 기능은 현재 코드에 추가될 경우 평가 범위를 확장할 수 있습니다.
+
+- timeout
+- `try-except`
+- LLM schema validation
+- retry
+- cache
+- normalization
+- Provider abstraction
+- logging
+- tests
