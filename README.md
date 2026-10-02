@@ -10,6 +10,11 @@ Gemini AI와 Kakao Local API를 활용하여 여행 날짜를 입력하면 대�
 
 ---
 
+
+![image](https://github.com/user-attachments/assets/cd6540df-cac4-408f-8285-f9e842eeb45f)
+
+
+
 # 1. 프로젝트 소개
 
 ## 1.1 프로젝트 목적
